@@ -113,7 +113,7 @@ function soft_ai_chat_model_render() {
         <strong>Common Models:</strong><br>
         Groq: <code>llama-3.3-70b-versatile</code>, <code>openai/gpt-oss-120b</code><br>
         OpenAI: <code>gpt-4o</code>, <code>gpt-4o-mini</code>, <code>gpt-3.5-turbo</code><br>
-        Gemini: <code>gemini-1.5-flash</code>, <code>gemini-1.5-pro</code>
+        Gemini: <code>gemini-2.5-flash</code>, <code>gemini-2.0-flash-lite</code>, <code>gemini-2.0-flash</code>, <code>gemini-2.5-pro</code>, <code>gemini-2.5-flash-lite</code>, <code>gemini-2.5-flash</code>, <code>gemini-3-flash-preview</code>, <code>gemini-3-pro-preview</code>
     </p>
     <?php
 }
@@ -200,16 +200,27 @@ function soft_ai_clean_divi_content($content) {
 }
 
 function soft_ai_chat_get_context($question) {
+    // Define post types to include Posts, Pages, and WooCommerce Products
+    $post_types = ['post', 'page', 'product'];
+
     $args = [
-        'post_type' => ['post', 'page'], 'post_status' => 'publish',
-        'posts_per_page' => 5, 's' => $question, 'orderby' => 'relevance',
+        'post_type' => $post_types, 
+        'post_status' => 'publish',
+        'posts_per_page' => 5, 
+        's' => $question, 
+        'orderby' => 'relevance',
     ];
     $query = new WP_Query($args);
     $posts = $query->posts;
 
     // Fallback if no search results
     if (empty($posts)) {
-        $posts = get_posts(['post_type' => ['post', 'page'], 'posts_per_page' => 3, 'orderby' => 'date', 'order' => 'DESC']);
+        $posts = get_posts([
+            'post_type' => $post_types, 
+            'posts_per_page' => 3, 
+            'orderby' => 'date', 
+            'order' => 'DESC'
+        ]);
     }
 
     $context = "";
@@ -217,6 +228,16 @@ function soft_ai_chat_get_context($question) {
         $title = soft_ai_clean_utf8($post->post_title);
         $link = get_permalink($post->ID);
         $raw = $post->post_content;
+        
+        // If it's a product, you might want to append the price or short description
+        if ($post->post_type === 'product' && function_exists('wc_get_product')) {
+            $product = wc_get_product($post->ID);
+            if ($product) {
+                $price = $product->get_price_html();
+                $short_desc = $product->get_short_description();
+                $raw .= " \nPrice: " . strip_tags($price) . "\nShort Description: " . $short_desc;
+            }
+        }
         
         if (strpos($raw, '[et_pb_') !== false) {
             $clean = soft_ai_clean_divi_content($raw);
