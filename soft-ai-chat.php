@@ -378,7 +378,7 @@ function soft_ai_chat_inject_widget() {
         #soft-ai-chat-trigger:hover { transform: scale(1.05); }
 
         #soft-ai-chat-window {
-            position: fixed; bottom: 90px; right: 20px; width: 350px; height: 450px; max-height: 80vh;
+            position: fixed; bottom: 90px; right: 20px; width: 350px; height: 350px; max-height: 80vh;
             background: white; border-radius: 12px; box-shadow: 0 5px 25px rgba(0,0,0,0.2);
             display: none; flex-direction: column; z-index: 9999; overflow: hidden; font-family: sans-serif;
             border: 1px solid #eee;
@@ -400,7 +400,7 @@ function soft_ai_chat_inject_widget() {
 
     <div id="soft-ai-chat-trigger" onclick="toggleSoftAiChat()">💬</div>
     <div id="soft-ai-chat-window">
-        <div class="sac-header"><span>Hỏi AI về Website</span><span class="sac-close" onclick="toggleSoftAiChat()">✕</span></div>
+        <div class="sac-header"><span>Trợ lý thông minh</span><span class="sac-close" onclick="toggleSoftAiChat()">✕</span></div>
         <div id="sac-messages"><div class="sac-msg bot">Xin chào! Tôi có thể giúp gì cho bạn?</div></div>
         <div class="sac-input-area">
             <input type="text" id="sac-input" placeholder="Nhập câu hỏi..." onkeypress="handleEnter(event)">
