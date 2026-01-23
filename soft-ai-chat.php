@@ -273,6 +273,7 @@ function soft_ai_chat_handle_request($request) {
                      "Answer strictly based on the 'Context Data' below.\n" .
                      "If you don't know, say you don't know.\n" .
                      "Include links when citing information.\n" .
+                     "DO NOT use Markdown tables. Use bullet points or numbered lists for structured data.\n" . // <--- Dòng thêm mới
                      "Reply in Vietnamese.\n\n" .
                      "Context Data:\n" . $context_data;
 
