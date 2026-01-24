@@ -395,14 +395,14 @@ function soft_ai_chat_inject_widget() {
             position: fixed; bottom: 20px; right: 20px; width: 60px; height: 60px;
             background-color: <?php echo esc_attr($theme_color); ?>; 
             color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-            cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 999999; transition: transform 0.2s; font-size: 24px;
+            cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 999999999; transition: transform 0.2s; font-size: 24px;
         }
         #soft-ai-chat-trigger:hover { transform: scale(1.05); }
 
         #soft-ai-chat-window {
             position: fixed; bottom: 90px; right: 20px; width: 350px; height: 350px; max-height: calc(100vh - 125px);
             background: white; border-radius: 12px; box-shadow: 0 5px 25px rgba(0,0,0,0.2);
-            display: none; flex-direction: column; z-index: 9999; overflow: hidden; font-family: sans-serif;
+            display: none; flex-direction: column; z-index: 999999999; overflow: hidden; font-family: sans-serif;
             border: 1px solid #eee;
         }
         .sac-header { background: <?php echo esc_attr($theme_color); ?>; color: white; padding: 15px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
