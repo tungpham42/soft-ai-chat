@@ -1,9 +1,9 @@
 <?php
 /**
- * Plugin Name: Soft AI Chat
+ * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment
  * Plugin URI:  https://soft.io.vn/soft-ai-chat
- * Description: An AI Chat Widget (Groq, OpenAI, Gemini) that answers questions based on your website's content. Now supports Facebook & Zalo integration.
- * Version:     1.3.0
+ * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + VietQR/PayPal Integration.
+ * Version:     2.3.0
  * Author:      Tung Pham
  * License:     GPL-2.0+
  * Text Domain: soft-ai-chat
@@ -33,7 +33,8 @@ function soft_ai_chat_activate() {
         question text NOT NULL,
         answer longtext NOT NULL,
         source varchar(50) DEFAULT 'widget' NOT NULL, 
-        PRIMARY KEY  (id)
+        PRIMARY KEY  (id),
+        KEY time (time)
     ) $charset_collate;";
 
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
@@ -67,6 +68,7 @@ function soft_ai_chat_admin_enqueue($hook_suffix) {
                 }
                 $('#soft_ai_provider_select').change(toggleFields);
                 toggleFields();
+                $('.soft-ai-color-field').wpColorPicker();
             });
         ");
     }
@@ -77,107 +79,95 @@ function soft_ai_chat_settings_init() {
 
     // Section 1: AI Configuration
     add_settings_section('soft_ai_chat_main', __('General & AI Configuration', 'soft-ai-chat'), null, 'softAiChat');
-    add_settings_field('save_history', __('Save Chat History', 'soft-ai-chat'), 'soft_ai_chat_save_history_render', 'softAiChat', 'soft_ai_chat_main');
+    add_settings_field('save_history', __('Save Chat History', 'soft-ai-chat'), 'soft_ai_render_checkbox', 'softAiChat', 'soft_ai_chat_main', ['field' => 'save_history']);
     add_settings_field('provider', __('Select AI Provider', 'soft-ai-chat'), 'soft_ai_chat_provider_render', 'softAiChat', 'soft_ai_chat_main');
-    add_settings_field('groq_api_key', __('Groq API Key', 'soft-ai-chat'), 'soft_ai_chat_groq_key_render', 'softAiChat', 'soft_ai_chat_main');
-    add_settings_field('openai_api_key', __('OpenAI API Key', 'soft-ai-chat'), 'soft_ai_chat_openai_key_render', 'softAiChat', 'soft_ai_chat_main');
-    add_settings_field('gemini_api_key', __('Google Gemini API Key', 'soft-ai-chat'), 'soft_ai_chat_gemini_key_render', 'softAiChat', 'soft_ai_chat_main');
-    add_settings_field('model', __('AI Model Name', 'soft-ai-chat'), 'soft_ai_chat_model_render', 'softAiChat', 'soft_ai_chat_main');
-    add_settings_field('temperature', __('Creativity (Temperature)', 'soft-ai-chat'), 'soft_ai_chat_temperature_render', 'softAiChat', 'soft_ai_chat_main');
-    add_settings_field('max_tokens', __('Max Tokens', 'soft-ai-chat'), 'soft_ai_chat_maxtokens_render', 'softAiChat', 'soft_ai_chat_main');
-    add_settings_field('theme_color', __('Widget Color', 'soft-ai-chat'), 'soft_ai_chat_themecolor_render', 'softAiChat', 'soft_ai_chat_main');
+    add_settings_field('groq_api_key', __('Groq API Key', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_main', ['field' => 'groq_api_key', 'class' => 'row-groq']);
+    add_settings_field('openai_api_key', __('OpenAI API Key', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_main', ['field' => 'openai_api_key', 'class' => 'row-openai']);
+    add_settings_field('gemini_api_key', __('Google Gemini API Key', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_main', ['field' => 'gemini_api_key', 'class' => 'row-gemini']);
+    add_settings_field('model', __('AI Model Name', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_main', ['field' => 'model', 'default' => 'llama-3.3-70b-versatile']);
+    add_settings_field('temperature', __('Creativity', 'soft-ai-chat'), 'soft_ai_render_number', 'softAiChat', 'soft_ai_chat_main', ['field' => 'temperature', 'default' => 0.5, 'step' => 0.1, 'max' => 1]);
+    add_settings_field('max_tokens', __('Max Tokens', 'soft-ai-chat'), 'soft_ai_render_number', 'softAiChat', 'soft_ai_chat_main', ['field' => 'max_tokens', 'default' => 4096]);
+    add_settings_field('system_prompt', __('Custom Persona', 'soft-ai-chat'), 'soft_ai_render_textarea', 'softAiChat', 'soft_ai_chat_main', ['field' => 'system_prompt', 'desc' => 'System instructions for the AI.']);
+    
+    // Section 2: Payment Integration
+    add_settings_section('soft_ai_chat_payment', __('Payment Integration (Chat Only)', 'soft-ai-chat'), null, 'softAiChat');
+    add_settings_field('vietqr_bank', __('VietQR Bank Code', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_payment', ['field' => 'vietqr_bank', 'desc' => 'Ví dụ: MB, VCB, ACB, TPB...']);
+    add_settings_field('vietqr_acc', __('VietQR Account No', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_payment', ['field' => 'vietqr_acc']);
+    add_settings_field('vietqr_name', __('Account Name (Optional)', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_payment', ['field' => 'vietqr_name']);
+    add_settings_field('paypal_me', __('PayPal.me Username', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_payment', ['field' => 'paypal_me', 'desc' => 'Username only (e.g., tungpham).']);
 
-    // Section 2: Social Integration
+    // Section 3: UI
+    add_settings_section('soft_ai_chat_ui', __('User Interface', 'soft-ai-chat'), null, 'softAiChat');
+    add_settings_field('welcome_msg', __('Welcome Message', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_ui', ['field' => 'welcome_msg', 'default' => 'Xin chào! Bạn cần tìm gì ạ?', 'width' => '100%']);
+    add_settings_field('theme_color', __('Widget Color', 'soft-ai-chat'), 'soft_ai_chat_themecolor_render', 'softAiChat', 'soft_ai_chat_ui');
+
+    // Section 4: Social Integration
     add_settings_section('soft_ai_chat_social', __('Social Media Integration', 'soft-ai-chat'), 'soft_ai_chat_social_desc', 'softAiChat');
-    add_settings_field('fb_page_token', __('Facebook Page Access Token', 'soft-ai-chat'), 'soft_ai_fb_token_render', 'softAiChat', 'soft_ai_chat_social');
-    add_settings_field('fb_verify_token', __('Facebook Verify Token', 'soft-ai-chat'), 'soft_ai_fb_verify_render', 'softAiChat', 'soft_ai_chat_social');
-    add_settings_field('zalo_access_token', __('Zalo OA Access Token', 'soft-ai-chat'), 'soft_ai_zalo_token_render', 'softAiChat', 'soft_ai_chat_social');
+    add_settings_field('fb_page_token', __('Facebook Page Access Token', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_social', ['field' => 'fb_page_token']);
+    add_settings_field('fb_verify_token', __('Facebook Verify Token', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_social', ['field' => 'fb_verify_token', 'default' => 'soft_ai_verify']);
+    add_settings_field('zalo_access_token', __('Zalo OA Access Token', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_social', ['field' => 'zalo_access_token']);
 }
 
-function soft_ai_chat_social_desc() {
-    echo '<p>Configure webhooks to connect your AI to Facebook Fanpage and Zalo OA.</p>';
-    echo '<p><strong>Facebook Webhook URL:</strong> <code>' . rest_url('soft-ai-chat/v1/webhook/facebook') . '</code></p>';
-    echo '<p><strong>Zalo Webhook URL:</strong> <code>' . rest_url('soft-ai-chat/v1/webhook/zalo') . '</code></p>';
-}
-
-// --- Render Functions ---
-
-function soft_ai_chat_save_history_render() {
+// --- Generic Render Helpers ---
+function soft_ai_render_text($args) {
     $options = get_option('soft_ai_chat_settings');
-    $val = isset($options['save_history']) ? $options['save_history'] : '0';
-    echo '<label><input type="checkbox" name="soft_ai_chat_settings[save_history]" value="1" ' . checked($val, '1', false) . ' /> Save chat logs to database.</label>';
+    $val = $options[$args['field']] ?? ($args['default'] ?? '');
+    $width = $args['width'] ?? '400px';
+    echo "<input type='text' name='soft_ai_chat_settings[{$args['field']}]' value='" . esc_attr($val) . "' style='width: {$width};'>";
+    if(isset($args['desc'])) echo "<p class='description'>{$args['desc']}</p>";
+}
+function soft_ai_render_textarea($args) {
+    $options = get_option('soft_ai_chat_settings');
+    $val = $options[$args['field']] ?? '';
+    echo "<textarea name='soft_ai_chat_settings[{$args['field']}]' rows='5' style='width: 100%;'>" . esc_textarea($val) . "</textarea>";
+    if(isset($args['desc'])) echo "<p class='description'>{$args['desc']}</p>";
+}
+function soft_ai_render_password($args) {
+    $options = get_option('soft_ai_chat_settings');
+    $val = $options[$args['field']] ?? '';
+    $cls = $args['class'] ?? '';
+    echo "<div class='api-key-row {$cls}'><input type='password' name='soft_ai_chat_settings[{$args['field']}]' value='" . esc_attr($val) . "' style='width:400px;'></div>";
+}
+function soft_ai_render_number($args) {
+    $options = get_option('soft_ai_chat_settings');
+    $val = $options[$args['field']] ?? ($args['default'] ?? 0);
+    $step = $args['step'] ?? 1;
+    $max = $args['max'] ?? 99999;
+    echo "<input type='number' step='{$step}' max='{$max}' name='soft_ai_chat_settings[{$args['field']}]' value='" . esc_attr($val) . "' style='width:100px;'>";
+}
+function soft_ai_render_checkbox($args) {
+    $options = get_option('soft_ai_chat_settings');
+    $val = isset($options[$args['field']]) ? $options[$args['field']] : '0';
+    echo '<label><input type="checkbox" name="soft_ai_chat_settings['.$args['field'].']" value="1" ' . checked($val, '1', false) . ' /> Enable</label>';
 }
 
 function soft_ai_chat_provider_render() {
     $options = get_option('soft_ai_chat_settings');
-    $val = isset($options['provider']) ? $options['provider'] : 'groq';
+    $val = $options['provider'] ?? 'groq';
     ?>
     <select name="soft_ai_chat_settings[provider]" id="soft_ai_provider_select">
-        <option value="groq" <?php selected($val, 'groq'); ?>>Groq (Fastest/Free Tier)</option>
+        <option value="groq" <?php selected($val, 'groq'); ?>>Groq (Llama 3/Mixtral)</option>
         <option value="openai" <?php selected($val, 'openai'); ?>>OpenAI (GPT-4o/Turbo)</option>
         <option value="gemini" <?php selected($val, 'gemini'); ?>>Google Gemini</option>
     </select>
     <?php
 }
 
-function soft_ai_chat_groq_key_render() {
-    $options = get_option('soft_ai_chat_settings');
-    $val = $options['groq_api_key'] ?? '';
-    echo "<div class='api-key-row row-groq'><input type='password' name='soft_ai_chat_settings[groq_api_key]' value='" . esc_attr($val) . "' style='width:400px;'></div>";
-}
-function soft_ai_chat_openai_key_render() {
-    $options = get_option('soft_ai_chat_settings');
-    $val = $options['openai_api_key'] ?? '';
-    echo "<div class='api-key-row row-openai'><input type='password' name='soft_ai_chat_settings[openai_api_key]' value='" . esc_attr($val) . "' style='width:400px;'></div>";
-}
-function soft_ai_chat_gemini_key_render() {
-    $options = get_option('soft_ai_chat_settings');
-    $val = $options['gemini_api_key'] ?? '';
-    echo "<div class='api-key-row row-gemini'><input type='password' name='soft_ai_chat_settings[gemini_api_key]' value='" . esc_attr($val) . "' style='width:400px;'></div>";
-}
-function soft_ai_chat_model_render() {
-    $options = get_option('soft_ai_chat_settings');
-    $value = $options['model'] ?? 'llama-3.3-70b-versatile';
-    echo "<input type='text' name='soft_ai_chat_settings[model]' value='" . esc_attr($value) . "' style='width: 400px;'>";
-}
-function soft_ai_chat_temperature_render() {
-    $options = get_option('soft_ai_chat_settings');
-    $val = $options['temperature'] ?? 0.5;
-    echo "<input type='number' step='0.1' min='0' max='1' name='soft_ai_chat_settings[temperature]' value='" . esc_attr($val) . "' style='width:60px;'>";
-}
-function soft_ai_chat_maxtokens_render() {
-    $options = get_option('soft_ai_chat_settings');
-    $val = $options['max_tokens'] ?? 4096;
-    echo "<input type='number' name='soft_ai_chat_settings[max_tokens]' value='" . esc_attr($val) . "' style='width:100px;'>";
-}
 function soft_ai_chat_themecolor_render() {
     $options = get_option('soft_ai_chat_settings');
     $val = $options['theme_color'] ?? '#027DDD';
     echo '<input type="text" name="soft_ai_chat_settings[theme_color]" value="' . esc_attr($val) . '" class="soft-ai-color-field" />';
-    echo "<script>jQuery(document).ready(function($){ $('.soft-ai-color-field').wpColorPicker(); });</script>";
 }
 
-// Social Renderers
-function soft_ai_fb_token_render() {
-    $options = get_option('soft_ai_chat_settings');
-    $val = $options['fb_page_token'] ?? '';
-    echo "<input type='password' name='soft_ai_chat_settings[fb_page_token]' value='" . esc_attr($val) . "' style='width:400px;'><p class='description'>Long-lived Page Access Token from Facebook App.</p>";
-}
-function soft_ai_fb_verify_render() {
-    $options = get_option('soft_ai_chat_settings');
-    $val = $options['fb_verify_token'] ?? 'soft_ai_chat_verify';
-    echo "<input type='text' name='soft_ai_chat_settings[fb_verify_token]' value='" . esc_attr($val) . "' style='width:400px;'><p class='description'>Set this same string in Facebook Webhook setup.</p>";
-}
-function soft_ai_zalo_token_render() {
-    $options = get_option('soft_ai_chat_settings');
-    $val = $options['zalo_access_token'] ?? '';
-    echo "<input type='password' name='soft_ai_chat_settings[zalo_access_token]' value='" . esc_attr($val) . "' style='width:400px;'><p class='description'>Zalo OA Access Token.</p>";
+function soft_ai_chat_social_desc() {
+    echo '<p>Webhooks: <code>' . rest_url('soft-ai-chat/v1/webhook/facebook') . '</code> | <code>' . rest_url('soft-ai-chat/v1/webhook/zalo') . '</code></p>';
 }
 
 function soft_ai_chat_options_page() {
+    if (!current_user_can('manage_options')) return;
     ?>
     <div class="wrap">
-        <h1>Soft AI Chat Settings</h1>
+        <h1>Soft AI Chat Configuration</h1>
         <form action='options.php' method='post'>
             <?php
             settings_fields('softAiChat');
@@ -197,11 +187,11 @@ function soft_ai_chat_history_page() {
     global $wpdb;
     $table_name = $wpdb->prefix . 'soft_ai_chat_logs';
 
-    if (isset($_POST['delete_log']) && isset($_POST['log_id'])) {
+    if (isset($_POST['delete_log']) && check_admin_referer('delete_log_' . $_POST['log_id'])) {
         $wpdb->delete($table_name, ['id' => intval($_POST['log_id'])]);
         echo '<div class="updated"><p>Log deleted.</p></div>';
     }
-    if (isset($_POST['clear_all_logs'])) {
+    if (isset($_POST['clear_all_logs']) && check_admin_referer('clear_all_logs')) {
         $wpdb->query("TRUNCATE TABLE $table_name");
         echo '<div class="updated"><p>All logs cleared.</p></div>';
     }
@@ -216,6 +206,7 @@ function soft_ai_chat_history_page() {
     <div class="wrap">
         <h1>Chat History</h1>
         <form method="post" style="margin-bottom: 20px; text-align:right;">
+            <?php wp_nonce_field('clear_all_logs'); ?>
             <input type="hidden" name="clear_all_logs" value="1">
             <button type="submit" class="button button-link-delete" onclick="return confirm('Delete ALL logs?')">Clear All History</button>
         </form>
@@ -239,7 +230,11 @@ function soft_ai_chat_history_page() {
                     <td><?php echo esc_html($log->question); ?></td>
                     <td><div style="max-height:80px;overflow-y:auto;"><?php echo esc_html($log->answer); ?></div></td>
                     <td>
-                        <form method="post"><input type="hidden" name="delete_log" value="1"><input type="hidden" name="log_id" value="<?php echo $log->id; ?>"><button class="button button-small">Del</button></form>
+                        <form method="post">
+                            <?php wp_nonce_field('delete_log_' . $log->id); ?>
+                            <input type="hidden" name="delete_log" value="1"><input type="hidden" name="log_id" value="<?php echo $log->id; ?>">
+                            <button class="button button-small">Del</button>
+                        </form>
                     </td>
                 </tr>
                 <?php endforeach; else: echo '<tr><td colspan="6">No history found.</td></tr>'; endif; ?>
@@ -251,46 +246,105 @@ function soft_ai_chat_history_page() {
 }
 
 // ---------------------------------------------------------
-// 2. CORE AI LOGIC (SHARED)
+// 2. CONTEXT & STATE MANAGER
 // ---------------------------------------------------------
 
-function soft_ai_clean_utf8($content) {
-    if (!is_string($content)) return '';
-    return preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', mb_convert_encoding($content, 'UTF-8', 'UTF-8'));
+class Soft_AI_Context {
+    public $user_id;
+    public $source;
+    
+    public function __construct($user_id, $source) {
+        $this->user_id = $user_id;
+        $this->source = $source;
+    }
+
+    public function get($key) {
+        if ($this->source === 'widget') {
+            return (function_exists('WC') && WC()->session) ? WC()->session->get('soft_ai_' . $key) : null;
+        } else {
+            $data = get_transient('soft_ai_sess_' . $this->user_id);
+            return isset($data[$key]) ? $data[$key] : null;
+        }
+    }
+    
+    public function set($key, $val) {
+        if ($this->source === 'widget') {
+            if (function_exists('WC') && WC()->session) WC()->session->set('soft_ai_' . $key, $val);
+        } else {
+            $data = get_transient('soft_ai_sess_' . $this->user_id) ?: [];
+            $data[$key] = $val;
+            set_transient('soft_ai_sess_' . $this->user_id, $data, 24 * HOUR_IN_SECONDS);
+        }
+    }
+
+    public function add_to_cart($product_id, $qty = 1) {
+        if ($this->source === 'widget' && function_exists('WC')) {
+            WC()->cart->add_to_cart($product_id, $qty);
+        } else {
+            $cart = $this->get('cart') ?: [];
+            if (isset($cart[$product_id])) $cart[$product_id]['qty'] += $qty;
+            else $cart[$product_id] = ['qty' => $qty];
+            $this->set('cart', $cart);
+        }
+    }
+
+    public function empty_cart() {
+        if ($this->source === 'widget' && function_exists('WC')) WC()->cart->empty_cart();
+        else $this->set('cart', []);
+    }
+
+    public function get_cart_count() {
+        if ($this->source === 'widget' && function_exists('WC')) return WC()->cart->get_cart_contents_count();
+        else {
+            $c = 0; $cart = $this->get('cart') ?: [];
+            foreach($cart as $i) $c += $i['qty'];
+            return $c;
+        }
+    }
+
+    public function get_cart_total_string() {
+        if ($this->source === 'widget' && function_exists('WC')) return WC()->cart->get_cart_total();
+        else {
+            $total = 0; $cart = $this->get('cart') ?: [];
+            foreach($cart as $pid => $item) {
+                $p = function_exists('wc_get_product') ? wc_get_product($pid) : null;
+                if($p) $total += ($p->get_price() * $item['qty']);
+            }
+            return function_exists('wc_price') ? wc_price($total) : number_format($total) . 'đ';
+        }
+    }
 }
 
-function soft_ai_strip_markdown($text) {
-    // Remove headers (# Header)
-    $text = preg_replace('/^#+\s+(.*)$/m', '$1', $text);
-    // Remove bold/italic (**bold**, *italic*, __bold__, _italic_)
-    $text = preg_replace('/(\*\*|__)(.*?)\1/', '$2', $text);
-    $text = preg_replace('/(\*|_)(.*?)\1/', '$2', $text);
-    // Remove links [text](url) -> text (url)
-    $text = preg_replace('/\[([^\]]+)\]\(([^)]+)\)/', '$1: $2', $text);
-    // Remove code blocks
-    $text = preg_replace('/```[^`]*```/', '', $text); 
-    // Remove inline code
-    $text = str_replace('`', '', $text);
-    return trim($text);
+// ---------------------------------------------------------
+// 3. CORE LOGIC (HYBRID: RAG + ORDERING + PAYMENTS)
+// ---------------------------------------------------------
+
+function soft_ai_clean_content($content) {
+    if (!is_string($content)) return '';
+    $content = strip_shortcodes($content);
+    $content = preg_replace('/\[\/?et_pb_[^\]]+\]/', '', $content);
+    $content = wp_strip_all_tags($content);
+    $content = preg_replace('/\s+/', ' ', $content);
+    return mb_substr(trim($content), 0, 1500);
 }
 
 function soft_ai_chat_get_context($question) {
-    $args = ['post_type' => ['post', 'page', 'product'], 'post_status' => 'publish', 'posts_per_page' => 5, 's' => $question, 'orderby' => 'relevance'];
-    $posts = (new WP_Query($args))->posts;
-    if (empty($posts)) $posts = get_posts(['post_type' => ['post', 'page', 'product'], 'posts_per_page' => 3]);
+    $args = ['post_type' => ['post', 'page', 'product'], 'post_status' => 'publish', 'posts_per_page' => 4, 's' => $question, 'orderby' => 'relevance'];
+    $posts = get_posts($args);
 
     $context = "";
-    foreach ($posts as $post) {
-        $raw = $post->post_content;
-        if ($post->post_type === 'product' && function_exists('wc_get_product')) {
-            $p = wc_get_product($post->ID);
-            if ($p) $raw .= " \nPrice: " . $p->get_price_html() . "\nShort: " . $p->get_short_description();
+    if ($posts) {
+        foreach ($posts as $post) {
+            $info = "";
+            if ($post->post_type === 'product' && function_exists('wc_get_product')) {
+                $p = wc_get_product($post->ID);
+                if ($p) $info = " | Price: " . $p->get_price_html() . " | Status: " . $p->get_stock_status();
+            }
+            $clean_body = soft_ai_clean_content($post->post_content);
+            $context .= "--- Source: {$post->post_title} ---\nLink: " . get_permalink($post->ID) . $info . "\nContent: $clean_body\n\n";
         }
-        $clean = soft_ai_clean_utf8(wp_strip_all_tags(preg_replace('/\[\/?et_pb_[^\]]+\]/', '', $raw)));
-        if (mb_strlen($clean) > 2000) $clean = mb_substr($clean, 0, 2000) . "...";
-        $context .= "--- ARTICLE ---\nTitle: {$post->post_title}\nLink: " . get_permalink($post->ID) . "\nContent: $clean\n\n";
     }
-    return $context ?: "No content found.";
+    return $context ?: "No specific website content found for this query.";
 }
 
 function soft_ai_log_chat($question, $answer, $source = 'widget') {
@@ -300,7 +354,7 @@ function soft_ai_log_chat($question, $answer, $source = 'widget') {
     $wpdb->insert($wpdb->prefix . 'soft_ai_chat_logs', [
         'time' => current_time('mysql'),
         'user_ip' => $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0',
-        'provider' => $opt['provider'] ?? 'groq',
+        'provider' => $opt['provider'] ?? 'unknown',
         'model' => $opt['model'] ?? 'unknown',
         'question' => $question,
         'answer' => $answer,
@@ -309,93 +363,492 @@ function soft_ai_log_chat($question, $answer, $source = 'widget') {
 }
 
 /**
- * Main function to generate answer from any source
- * @param string $question
- * @param string $platform (widget, facebook, zalo)
+ * Helper: Clean Markdown/HTML for Social Platforms (Facebook/Zalo)
+ * Cập nhật: Giải mã HTML entities (ví dụ giá tiền WooCommerce)
  */
-function soft_ai_generate_answer($question, $platform = 'widget') {
+function soft_ai_clean_text_for_social($content) {
+    // 0. Giải mã HTML entities trước (Ví dụ: &nbsp;&#8363; -> " ₫")
+    // Dùng ENT_QUOTES | ENT_HTML5 để xử lý cả dấu nháy và các mã HTML5 mới
+    $content = html_entity_decode($content, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+    // 1. Chuyển đổi ảnh Markdown: ![Alt](Url) -> Url để Zalo/FB tự preview
+    $content = preg_replace('/!\[([^\]]*)\]\(([^)]+)\)/', '$2', $content);
+    
+    // 2. Chuyển đổi Link Markdown: [Text](Url) -> Text: Url
+    $content = preg_replace('/\[([^\]]+)\]\(([^)]+)\)/', '$1: $2', $content);
+
+    // 3. Loại bỏ Bold (**), Italic (__), Code (`)
+    $content = str_replace(['**', '__', '`'], '', $content);
+    
+    // 4. Loại bỏ Heading (# Title)
+    $content = preg_replace('/^#+\s*/m', '', $content);
+    
+    // 5. Strip toàn bộ HTML tags còn sót lại và trim khoảng trắng thừa
+    return trim(wp_strip_all_tags($content));
+}
+
+/**
+ * Main AI Engine + State Machine
+ */
+function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '') {
+    if (empty($user_id)) $user_id = get_current_user_id() ?: md5($_SERVER['REMOTE_ADDR']);
+    $context = new Soft_AI_Context($user_id, $platform);
+    
+    // 1. Flow Interruption
+    $current_step = $context->get('bot_collecting_info_step');
+    $cancel_keywords = ['huỷ', 'hủy', 'cancel', 'thôi', 'stop', 'thoát'];
+    if (in_array(mb_strtolower(trim($question)), $cancel_keywords)) {
+        $context->set('bot_collecting_info_step', null);
+        return "Đã hủy thao tác hiện tại. Mình có thể giúp gì khác không?";
+    }
+
+    if ($current_step && class_exists('WooCommerce')) {
+        $response = soft_ai_handle_ordering_steps($question, $current_step, $context);
+        // Xử lý plain text nếu là FB/Zalo
+        if ($platform === 'facebook' || $platform === 'zalo') {
+            return soft_ai_clean_text_for_social($response);
+        }
+        return $response;
+    }
+
+    // 2. Setup AI
     $options = get_option('soft_ai_chat_settings');
     $provider = $options['provider'] ?? 'groq';
     $model = $options['model'] ?? 'llama-3.3-70b-versatile';
-    $temp = floatval($options['temperature'] ?? 0.5);
-    $max_tokens = intval($options['max_tokens'] ?? 4096);
-
-    $context_data = soft_ai_chat_get_context($question);
     
-    // Default Prompt
-    $instructions = "Answer strictly based on the 'Context Data' below.\n" .
-                    "If you don't know, say you don't know.\n" .
-                    "Include links when citing information.\n" .
-                    "Reply in Vietnamese.";
-
-    // Logic: If Facebook or Zalo, force plain text
-    if ($platform === 'facebook' || $platform === 'zalo') {
-        $instructions .= "\nIMPORTANT: The user is on a platform that DOES NOT support Markdown." . 
-                         "\n- Do NOT use bold (**text**), italics (*text*), or headers (##)." .
-                         "\n- Do NOT use Markdown links [text](url). Simply write the URL." .
-                         "\n- Use dashes (-) for bullet points.";
-    }
-
+    // 3. Prompt Engineering
+    $site_context = soft_ai_chat_get_context($question);
+    $user_instruction = $options['system_prompt'] ?? '';
+    
     $system_prompt = "You are a helpful AI assistant for this website.\n" .
-                     $instructions . "\n\n" .
-                     "Context Data:\n" . $context_data;
+                     ($user_instruction ? "Additional Persona: $user_instruction\n" : "") .
+                     "Website Content Context:\n" . $site_context . "\n\n" .
+                     "CRITICAL INSTRUCTIONS:\n" . 
+                     "1. If user wants to BUY/ORDER/FIND products, return STRICT JSON only (no markdown):\n" .
+                     "   {\"action\": \"find_product\", \"query\": \"product name\"}\n" .
+                     "   {\"action\": \"check_cart\"}\n" .
+                     "   {\"action\": \"checkout\"}\n" .
+                     "2. For general chat, answer normally in Vietnamese.\n" .
+                     "3. If unknown, admit it politely.";
 
-    $res = null;
-    if ($provider === 'groq') {
-        $res = soft_ai_chat_call_openai_compatible('https://api.groq.com/openai/v1/chat/completions', $options['groq_api_key'] ?? '', $model, $system_prompt, $question, $temp, $max_tokens);
-    } elseif ($provider === 'openai') {
-        $res = soft_ai_chat_call_openai_compatible('https://api.openai.com/v1/chat/completions', $options['openai_api_key'] ?? '', $model, $system_prompt, $question, $temp, $max_tokens);
-    } elseif ($provider === 'gemini') {
-        $res = soft_ai_chat_call_gemini($options['gemini_api_key'] ?? '', $model, $system_prompt, $question, $temp, $max_tokens);
+    // 4. Call API
+    $ai_response = soft_ai_chat_call_api($provider, $model, $system_prompt, $question, $options);
+    if (is_wp_error($ai_response)) return "Lỗi hệ thống: " . $ai_response->get_error_message();
+
+    // 5. Clean & Parse JSON
+    $clean_response = trim($ai_response);
+    if (preg_match('/```json\s*(.*?)\s*```/s', $clean_response, $matches)) {
+        $clean_response = $matches[1];
+    } elseif (preg_match('/```\s*(.*?)\s*```/s', $clean_response, $matches)) {
+        $clean_response = $matches[1];
     }
 
-    if (is_wp_error($res)) return "Error: " . $res->get_error_message();
-    return $res;
+    $intent = json_decode($clean_response, true);
+    
+    if (json_last_error() === JSON_ERROR_NONE && isset($intent['action']) && class_exists('WooCommerce')) {
+        $response = soft_ai_process_order_logic($intent, $context);
+        // Xử lý plain text nếu là FB/Zalo
+        if ($platform === 'facebook' || $platform === 'zalo') {
+            return soft_ai_clean_text_for_social($response);
+        }
+        return $response;
+    }
+
+    // 6. Return Text
+    if ($platform === 'facebook' || $platform === 'zalo') {
+        return soft_ai_clean_text_for_social($clean_response);
+    }
+    return $clean_response;
 }
 
-function soft_ai_chat_call_openai_compatible($endpoint, $api_key, $model, $sys, $user, $temp, $max) {
-    if (empty($api_key)) return new WP_Error('missing_key', 'API Key missing');
-    $res = wp_remote_post($endpoint, [
-        'headers' => ['Authorization' => 'Bearer ' . $api_key, 'Content-Type' => 'application/json'],
-        'body' => json_encode(['model' => $model, 'messages' => [['role' => 'system', 'content' => $sys], ['role' => 'user', 'content' => $user]], 'temperature' => $temp, 'max_tokens' => $max]),
-        'timeout' => 45
-    ]);
-    if (is_wp_error($res)) return $res;
-    $body = json_decode(wp_remote_retrieve_body($res), true);
-    return $body['choices'][0]['message']['content'] ?? 'No response';
+// Logic Dispatcher
+function soft_ai_process_order_logic($intent, $context) {
+    $action = $intent['action'];
+    $source = $context->source;
+
+    switch ($action) {
+        case 'find_product':
+            $query = sanitize_text_field($intent['query'] ?? '');
+            $products = wc_get_products(['status' => 'publish', 'limit' => 1, 's' => $query]);
+            
+            if (!empty($products)) {
+                $p = $products[0];
+                if (!$p->is_in_stock()) return "Sản phẩm " . $p->get_name() . " hiện đang hết hàng ạ.";
+
+                $context->set('pending_product_id', $p->get_id());
+                
+                $attributes = $p->get_attributes();
+                $attr_keys = array_keys($attributes); 
+                
+                if (!empty($attr_keys) && $p->is_type('variable')) {
+                    $context->set('attr_queue', $attr_keys);
+                    $context->set('attr_answers', []); 
+                    $context->set('bot_collecting_info_step', 'process_attribute_loop'); 
+                    $question = soft_ai_ask_next_attribute($context, $p);
+                    return ($source == 'widget') 
+                        ? "Tìm thấy: <b>" . $p->get_name() . "</b>.<br>" . $question 
+                        : "Tìm thấy: " . $p->get_name() . ".\n" . $question;
+                } else {
+                    $context->set('bot_collecting_info_step', 'ask_quantity');
+                    return "Đã tìm thấy " . $p->get_name() . ". Bạn muốn lấy số lượng bao nhiêu?";
+                }
+            }
+            return "Xin lỗi, mình không tìm thấy sản phẩm nào khớp với '$query'.";
+
+        case 'check_cart':
+            $count = $context->get_cart_count();
+            return $count > 0 
+                ? "Giỏ hàng có $count sản phẩm (" . $context->get_cart_total_string() . "). Gõ 'Thanh toán' để đặt hàng nhé." 
+                : "Giỏ hàng của bạn đang trống.";
+
+        case 'checkout':
+            if ($context->get_cart_count() == 0) return "Giỏ hàng trống. Hãy chọn sản phẩm trước nhé!";
+            
+            $has_info = false;
+            $name = '';
+            
+            if ($source === 'widget' && WC()->customer->get_billing_first_name() && WC()->customer->get_billing_email()) {
+                $has_info = true; 
+                $name = WC()->customer->get_billing_first_name();
+            } else {
+                $saved = $context->get('user_info');
+                if (!empty($saved['name']) && !empty($saved['email'])) { 
+                    $has_info = true; 
+                    $name = $saved['name']; 
+                }
+            }
+
+            if ($has_info) {
+                return soft_ai_present_payment_gateways($context, "Chào $name! Bạn muốn thanh toán qua đâu?");
+            } else {
+                $context->set('bot_collecting_info_step', 'fullname');
+                return "Để đặt hàng, cho em xin Họ và Tên của bạn ạ?";
+            }
+            break;
+    }
+    return "Tôi chưa hiểu yêu cầu này. Bạn có thể nói rõ hơn không?";
 }
 
-function soft_ai_chat_call_gemini($api_key, $model, $sys, $user, $temp, $max) {
-    if (empty($api_key)) return new WP_Error('missing_key', 'Gemini Key missing');
-    $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$api_key}";
-    $res = wp_remote_post($url, [
-        'headers' => ['Content-Type' => 'application/json'],
-        'body' => json_encode(['system_instruction' => ['parts' => [['text' => $sys]]], 'contents' => [['role' => 'user', 'parts' => [['text' => $user]]]], 'generationConfig' => ['temperature' => $temp, 'maxOutputTokens' => $max]]),
-        'timeout' => 45
-    ]);
-    if (is_wp_error($res)) return $res;
-    $body = json_decode(wp_remote_retrieve_body($res), true);
-    return $body['candidates'][0]['content']['parts'][0]['text'] ?? 'No response';
+// State Machine Handlers
+function soft_ai_handle_ordering_steps($message, $step, $context) {
+    $clean_message = trim($message);
+    $source = $context->source;
+
+    switch ($step) {
+        case 'process_attribute_loop':
+            $current_slug = $context->get('current_asking_attr');
+            $answers = $context->get('attr_answers') ?: [];
+            $answers[$current_slug] = $clean_message;
+            $context->set('attr_answers', $answers);
+            
+            $p = wc_get_product($context->get('pending_product_id'));
+            return soft_ai_ask_next_attribute($context, $p);
+
+        case 'ask_quantity':
+            $qty = intval($clean_message);
+            if ($qty <= 0) return "Số lượng phải lớn hơn 0. Vui lòng nhập lại:";
+            
+            $pid = $context->get('pending_product_id');
+            if ($pid) {
+                $context->add_to_cart($pid, $qty);
+                $context->set('bot_collecting_info_step', null);
+                $total = $context->get_cart_total_string();
+                return "✅ Đã thêm vào giỏ. Tổng đơn: $total.\nGõ 'Thanh toán' để chốt đơn hoặc hỏi mua tiếp.";
+            }
+            return "Có lỗi xảy ra với sản phẩm. Vui lòng tìm lại.";
+
+        case 'fullname':
+            $context->set('temp_name', $clean_message);
+            if ($source === 'widget') WC()->customer->set_billing_first_name($clean_message);
+            $context->set('bot_collecting_info_step', 'phone');
+            return "Chào $clean_message, cho em xin Số điện thoại liên hệ?";
+
+        case 'phone':
+            if (!preg_match('/^[0-9]{9,12}$/', $clean_message)) return "Số điện thoại không hợp lệ. Vui lòng nhập lại:";
+            $context->set('temp_phone', $clean_message);
+            if ($source === 'widget') WC()->customer->set_billing_phone($clean_message);
+            $context->set('bot_collecting_info_step', 'email');
+            return "Dạ, cho em xin địa chỉ Email để gửi thông tin đơn hàng và thanh toán ạ?";
+
+        case 'email':
+            if (!is_email($clean_message)) return "Email không hợp lệ. Vui lòng nhập lại (ví dụ: ten@gmail.com):";
+            $context->set('temp_email', $clean_message);
+            if ($source === 'widget') WC()->customer->set_billing_email($clean_message);
+            $context->set('bot_collecting_info_step', 'address');
+            return "Cuối cùng, cho em xin Địa chỉ giao hàng cụ thể ạ?";
+
+        case 'address':
+            $context->set('temp_address', $clean_message);
+            if ($source === 'widget') {
+                WC()->customer->set_billing_address_1($clean_message);
+                WC()->customer->save();
+            } else {
+                $context->set('user_info', [
+                    'name' => $context->get('temp_name'),
+                    'phone' => $context->get('temp_phone'),
+                    'email' => $context->get('temp_email'),
+                    'address' => $clean_message
+                ]);
+            }
+            return soft_ai_present_payment_gateways($context, "Đã lưu địa chỉ. Bạn chọn hình thức thanh toán nào?");
+
+        case 'payment_method':
+            // 1. Check Custom Methods (VietQR / PayPal)
+            $method_key = mb_strtolower($clean_message);
+            if (strpos($method_key, 'vietqr') !== false || strpos($method_key, 'chuyển khoản') !== false || strpos($method_key, 'qr') !== false) {
+                return soft_ai_finalize_order($context, 'vietqr_custom');
+            }
+            if (strpos($method_key, 'paypal') !== false) {
+                return soft_ai_finalize_order($context, 'paypal_custom');
+            }
+
+            // 2. Check Standard WC Gateways
+            $gateways = WC()->payment_gateways->get_available_payment_gateways();
+            $selected = null;
+            foreach ($gateways as $g) {
+                if (stripos($g->title, $clean_message) !== false || stripos($g->id, $clean_message) !== false) { 
+                    $selected = $g; break; 
+                }
+            }
+            // Default Fallback
+            if (!$selected && (stripos($clean_message, 'cod') !== false || stripos($clean_message, 'mặt') !== false)) {
+                $selected = $gateways['cod'] ?? null;
+            }
+
+            if (!$selected) return "Phương thức chưa đúng. Vui lòng nhập lại (ví dụ: VietQR, PayPal, COD).";
+
+            return soft_ai_finalize_order($context, $selected);
+    }
+    return "";
+}
+
+function soft_ai_ask_next_attribute($context, $product) {
+    $queue = $context->get('attr_queue');
+    if (empty($queue)) {
+        $context->set('bot_collecting_info_step', 'ask_quantity');
+        return "Bạn muốn lấy số lượng bao nhiêu?";
+    }
+    $current = array_shift($queue);
+    $context->set('attr_queue', $queue);
+    $context->set('current_asking_attr', $current);
+    
+    return "Bạn chọn " . wc_attribute_label($current) . " nào?";
+}
+
+function soft_ai_present_payment_gateways($context, $msg) {
+    $gateways = WC()->payment_gateways->get_available_payment_gateways();
+    $opts = get_option('soft_ai_chat_settings');
+    
+    $list = "";
+    $prefix = ($context->source == 'widget') ? "<br>• " : "\n- ";
+
+    // Add Standard Gateways
+    foreach ($gateways as $g) {
+        $list .= $prefix . $g->get_title();
+    }
+    
+    // Add Custom Chat Integrations
+    if (!empty($opts['vietqr_bank']) && !empty($opts['vietqr_acc'])) {
+        $list .= $prefix . "VietQR (Chuyển khoản nhanh)";
+    }
+    if (!empty($opts['paypal_me'])) {
+        $list .= $prefix . "PayPal";
+    }
+
+    $context->set('bot_collecting_info_step', 'payment_method');
+    return $msg . $list;
+}
+
+function soft_ai_finalize_order($context, $gateway_or_code) {
+    try {
+        $order = wc_create_order();
+        $opts = get_option('soft_ai_chat_settings');
+
+        // Add Products
+        if ($context->source === 'widget') {
+            foreach (WC()->cart->get_cart() as $values) $order->add_product($values['data'], $values['quantity']);
+            $billing = [
+                'first_name' => WC()->customer->get_billing_first_name(),
+                'phone'      => WC()->customer->get_billing_phone(),
+                'address_1'  => WC()->customer->get_billing_address_1(),
+                'email'      => WC()->customer->get_billing_email() ?: $context->get('temp_email')
+            ];
+        } else {
+            $cart = $context->get('cart') ?: [];
+            foreach ($cart as $pid => $item) {
+                $p = wc_get_product($pid);
+                if($p) $order->add_product($p, $item['qty']);
+            }
+            $billing = [
+                'first_name' => $context->get('temp_name'),
+                'phone'      => $context->get('temp_phone'),
+                'address_1'  => $context->get('temp_address'),
+                'email'      => $context->get('temp_email') ?: 'social-guest@example.com'
+            ];
+        }
+        
+        if (empty($billing['email'])) $billing['email'] = 'no-email@example.com';
+        $order->set_address($billing, 'billing');
+
+        $extra_msg = "";
+        
+        // Handle Payment Methods
+        if ($gateway_or_code === 'vietqr_custom') {
+            $order->set_payment_method('bacs'); // Gán là chuyển khoản ngân hàng
+            $order->set_payment_method_title('VietQR (Chat)');
+            $order->calculate_totals();
+            
+            // --- FIX: LẤY DỮ LIỆU TỪ WOOCOMMERCE BACS SETTINGS ---
+            // Lấy danh sách tài khoản đã cài trong WooCommerce > Payments > Direct bank transfer
+            $bacs_accounts = get_option('woocommerce_bacs_accounts');
+            
+            $bank = ''; $acc = ''; $name = '';
+
+            if (!empty($bacs_accounts) && is_array($bacs_accounts)) {
+                // Lấy tài khoản đầu tiên trong danh sách
+                $account = $bacs_accounts[0];
+                
+                // 1. Tên ngân hàng (Lưu ý: Trong Woo phải điền đúng mã, ví dụ "MB" hoặc "970407", không điền "MB Bank")
+                $bank = str_replace(' ', '', $account['bank_name']); 
+                
+                // 2. Số tài khoản
+                $acc  = str_replace(' ', '', $account['account_number']);
+                
+                // 3. Tên chủ tài khoản
+                $raw_name = $account['account_name'];
+                $name = str_replace(' ', '%20', $raw_name);
+            } else {
+                 // Fallback: Nếu Woo chưa cài, lấy từ Plugin Settings cũ
+                 $bank = str_replace(' ', '', $opts['vietqr_bank'] ?? '');
+                 $acc  = str_replace(' ', '', $opts['vietqr_acc'] ?? '');
+                 $name = str_replace(' ', '%20', $opts['vietqr_name'] ?? '');
+            }
+
+            $amt = intval($order->get_total()); 
+            $desc = "DH" . $order->get_id(); 
+            
+            // Chỉ tạo link nếu có đủ thông tin
+            if ($bank && $acc) {
+                $qr_url = "https://img.vietqr.io/image/{$bank}-{$acc}-compact.jpg?amount={$amt}&addInfo={$desc}&accountName={$name}";
+                $extra_msg = "\n\n⬇️ **Quét mã để thanh toán:**\n![VietQR]($qr_url)";
+                if ($context->source == 'widget') $extra_msg = "<br><br><b>Quét mã để thanh toán:</b><br><img src='$qr_url' style='max-width:100%; border-radius:8px;'>";
+            } else {
+                $extra_msg = "\n\n(Vui lòng cập nhật thông tin ngân hàng trong cài đặt WooCommerce)";
+            }
+            // --- END FIX ---
+            
+        } elseif ($gateway_or_code === 'paypal_custom') {
+            $order->set_payment_method('paypal');
+            $order->set_payment_method_title('PayPal (Chat Link)');
+            $order->calculate_totals();
+            
+            $raw_user = $opts['paypal_me'] ?? '';
+            $raw_user = str_replace(['https://', 'http://', 'paypal.me/', '/'], '', $raw_user);
+            $currency = get_woocommerce_currency(); 
+            $amt = $order->get_total();
+            
+            $pp_link = "https://paypal.me/{$raw_user}/{$amt}{$currency}";
+            
+            $extra_msg = "\n\n👉 [Nhấn để thanh toán PayPal]($pp_link)";
+            if ($context->source == 'widget') $extra_msg = "<br><br><a href='$pp_link' target='_blank' style='background:#0070ba;color:white;padding:10px 15px;border-radius:5px;text-decoration:none;font-weight:bold;'>Thanh toán ngay với PayPal</a>";
+            
+        } else {
+            $order->set_payment_method($gateway_or_code);
+            $order->calculate_totals();
+        }
+
+        $order->update_status('on-hold', "Order via Soft AI Chat ({$context->source})");
+        
+        $context->empty_cart();
+        $context->set('bot_collecting_info_step', null);
+        
+        $base_msg = "🎉 ĐẶT HÀNG THÀNH CÔNG!\nMã đơn: #" . $order->get_id() . "\nEmail xác nhận đã gửi tới " . $billing['email'] . ".";
+        
+        return $base_msg . $extra_msg;
+
+    } catch (Exception $e) {
+        return "Lỗi khi tạo đơn: " . $e->getMessage() . ". Vui lòng liên hệ Hotline.";
+    }
 }
 
 // ---------------------------------------------------------
-// 3. REST API & WEBHOOKS
+// 4. API CALLER (Unified)
+// ---------------------------------------------------------
+
+function soft_ai_chat_call_api($provider, $model, $sys, $user, $opts) {
+    $api_key = $opts[$provider . '_api_key'] ?? '';
+    if (!$api_key) return new WP_Error('missing_key', 'API Key Missing');
+
+    $url = '';
+    $headers = ['Content-Type' => 'application/json'];
+    $body = [];
+
+    switch ($provider) {
+        case 'groq':
+            $url = 'https://api.groq.com/openai/v1/chat/completions';
+            $headers['Authorization'] = 'Bearer ' . $api_key;
+            $body = [
+                'model' => $model,
+                'messages' => [['role' => 'system', 'content' => $sys], ['role' => 'user', 'content' => $user]],
+                'temperature' => (float)$opts['temperature'],
+                'max_tokens' => (int)$opts['max_tokens']
+            ];
+            break;
+        case 'openai':
+            $url = 'https://api.openai.com/v1/chat/completions';
+            $headers['Authorization'] = 'Bearer ' . $api_key;
+            $body = [
+                'model' => $model,
+                'messages' => [['role' => 'system', 'content' => $sys], ['role' => 'user', 'content' => $user]],
+                'temperature' => (float)$opts['temperature'],
+                'max_tokens' => (int)$opts['max_tokens']
+            ];
+            break;
+        case 'gemini':
+            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$api_key}";
+            $body = [
+                'system_instruction' => ['parts' => [['text' => $sys]]],
+                'contents' => [['role' => 'user', 'parts' => [['text' => $user]]]],
+                'generationConfig' => ['temperature' => (float)$opts['temperature'], 'maxOutputTokens' => (int)$opts['max_tokens']]
+            ];
+            break;
+    }
+
+    $response = wp_remote_post($url, [
+        'headers' => $headers, 
+        'body' => json_encode($body), 
+        'timeout' => 60
+    ]);
+
+    if (is_wp_error($response)) return $response;
+    
+    $data = json_decode(wp_remote_retrieve_body($response), true);
+    
+    if (isset($data['choices'][0]['message']['content'])) {
+        return $data['choices'][0]['message']['content'];
+    }
+    if (isset($data['candidates'][0]['content']['parts'][0]['text'])) {
+        return $data['candidates'][0]['content']['parts'][0]['text'];
+    }
+
+    return "API Error: " . wp_remote_retrieve_body($response);
+}
+
+// ---------------------------------------------------------
+// 5. REST API & WEBHOOKS
 // ---------------------------------------------------------
 
 add_action('rest_api_init', function () {
-    // Frontend Widget Route
     register_rest_route('soft-ai-chat/v1', '/ask', [
         'methods' => 'POST',
         'callback' => 'soft_ai_chat_handle_widget_request',
         'permission_callback' => '__return_true',
     ]);
-    // Facebook Webhook
     register_rest_route('soft-ai-chat/v1', '/webhook/facebook', [
         'methods' => ['GET', 'POST'],
         'callback' => 'soft_ai_chat_webhook_facebook',
         'permission_callback' => '__return_true',
     ]);
-    // Zalo Webhook
     register_rest_route('soft-ai-chat/v1', '/webhook/zalo', [
         'methods' => 'POST',
         'callback' => 'soft_ai_chat_webhook_zalo',
@@ -403,219 +856,196 @@ add_action('rest_api_init', function () {
     ]);
 });
 
-// Widget Handler
 function soft_ai_chat_handle_widget_request($request) {
+    if (function_exists('WC') && !WC()->session) {
+        $session_class = apply_filters('woocommerce_session_handler', 'WC_Session_Handler');
+        WC()->session = new $session_class();
+        WC()->session->init();
+        if (!WC()->cart) { WC()->cart = new WC_Cart(); WC()->cart->get_cart(); }
+        if (!WC()->customer) { WC()->customer = new WC_Customer(get_current_user_id()); }
+    }
+
     $params = $request->get_json_params();
     $question = sanitize_text_field($params['question'] ?? '');
-    if (empty($question)) return new WP_Error('missing_params', 'Question required', ['status' => 400]);
+    
+    if (!$question) return new WP_Error('no_input', 'Empty Question', ['status' => 400]);
 
-    $answer = soft_ai_generate_answer($question, 'widget'); // Widget allows Markdown
+    $answer = soft_ai_generate_answer($question, 'widget');
     soft_ai_log_chat($question, $answer, 'widget');
     
     return rest_ensure_response(['answer' => $answer]);
 }
 
-// ---------------------------------------------------------
-// 4. FACEBOOK INTEGRATION
-// ---------------------------------------------------------
-
 function soft_ai_chat_webhook_facebook($request) {
     $options = get_option('soft_ai_chat_settings');
-    $verify_token = $options['fb_verify_token'] ?? 'soft_ai_chat_verify';
+    $verify_token = $options['fb_verify_token'] ?? 'soft_ai_verify';
 
-    // 1. Verification Request (GET)
     if ($request->get_method() === 'GET') {
         $params = $request->get_query_params();
-        if (isset($params['hub_mode']) && $params['hub_mode'] === 'subscribe' && 
-            isset($params['hub_verify_token']) && $params['hub_verify_token'] === $verify_token) {
-            echo $params['hub_challenge'];
-            exit;
+        if (isset($params['hub_verify_token']) && $params['hub_verify_token'] === $verify_token) {
+            echo $params['hub_challenge']; exit;
         }
-        return new WP_Error('forbidden', 'Verification failed', ['status' => 403]);
+        return new WP_Error('forbidden', 'Invalid Token', ['status' => 403]);
     }
 
-    // 2. Incoming Message (POST)
     $body = $request->get_json_params();
     if (isset($body['object']) && $body['object'] === 'page') {
         foreach ($body['entry'] as $entry) {
             foreach ($entry['messaging'] as $event) {
-                if (isset($event['message']) && isset($event['message']['text']) && !isset($event['message']['is_echo'])) {
-                    $sender_id = $event['sender']['id'];
-                    $user_msg = $event['message']['text'];
-
-                    // Process AI (Pass 'facebook' to disable Markdown)
-                    $ai_reply = soft_ai_generate_answer($user_msg, 'facebook');
-                    
-                    // Reply to FB (Strip again to be safe)
-                    soft_ai_send_fb_message($sender_id, soft_ai_strip_markdown($ai_reply));
-                    
-                    // Log
-                    soft_ai_log_chat($user_msg, $ai_reply, 'facebook');
+                if (isset($event['message']['text']) && !isset($event['message']['is_echo'])) {
+                    $sender = $event['sender']['id'];
+                    $reply = soft_ai_generate_answer($event['message']['text'], 'facebook', $sender);
+                    soft_ai_send_fb_message($sender, $reply, $options['fb_page_token']);
+                    soft_ai_log_chat($event['message']['text'], $reply, 'facebook');
                 }
             }
         }
         return rest_ensure_response(['status' => 'EVENT_RECEIVED']);
     }
-    return new WP_Error('bad_request', 'Invalid FB Event', ['status' => 404]);
+    return new WP_Error('bad_req', 'Invalid FB Data', ['status' => 404]);
 }
 
-function soft_ai_send_fb_message($recipient_id, $message_text) {
-    $options = get_option('soft_ai_chat_settings');
-    $access_token = $options['fb_page_token'] ?? '';
-    if (empty($access_token)) return;
-
-    // Split message if > 2000 chars (FB limit)
-    $chunks = str_split($message_text, 1900);
-    
+function soft_ai_send_fb_message($recipient, $text, $token) {
+    if (!$token) return;
+    $chunks = str_split($text, 1900);
     foreach ($chunks as $chunk) {
-        $url = "https://graph.facebook.com/v21.0/me/messages?access_token=" . $access_token;
-        wp_remote_post($url, [
+        wp_remote_post("https://graph.facebook.com/v21.0/me/messages?access_token=$token", [
             'headers' => ['Content-Type' => 'application/json'],
-            'body' => json_encode([
-                'recipient' => ['id' => $recipient_id],
-                'message' => ['text' => $chunk]
-            ])
+            'body' => json_encode(['recipient' => ['id' => $recipient], 'message' => ['text' => $chunk]])
         ]);
     }
 }
 
-// ---------------------------------------------------------
-// 5. ZALO OA INTEGRATION
-// ---------------------------------------------------------
-
 function soft_ai_chat_webhook_zalo($request) {
     $body = $request->get_json_params();
-    
-    // Check event type (user_send_text)
     if (isset($body['event_name']) && $body['event_name'] === 'user_send_text') {
-        $sender_id = $body['sender']['id'];
-        $user_msg = $body['message']['text'];
-
-        // Process AI (Pass 'zalo' to disable Markdown)
-        $ai_reply = soft_ai_generate_answer($user_msg, 'zalo');
-
-        // Reply to Zalo (Strip again to be safe)
-        soft_ai_send_zalo_message($sender_id, soft_ai_strip_markdown($ai_reply));
-
-        // Log
-        soft_ai_log_chat($user_msg, $ai_reply, 'zalo');
+        $sender = $body['sender']['id'];
+        $reply = soft_ai_generate_answer($body['message']['text'], 'zalo', $sender);
         
+        $token = get_option('soft_ai_chat_settings')['zalo_access_token'] ?? '';
+        if ($token) {
+            wp_remote_post("https://openapi.zalo.me/v3.0/oa/message/cs", [
+                'headers' => ['access_token' => $token, 'Content-Type' => 'application/json'],
+                'body' => json_encode(['recipient' => ['user_id' => $sender], 'message' => ['text' => $reply]])
+            ]);
+        }
+        soft_ai_log_chat($body['message']['text'], $reply, 'zalo');
         return rest_ensure_response(['status' => 'success']);
     }
-    
     return rest_ensure_response(['status' => 'ignored']);
 }
 
-function soft_ai_send_zalo_message($user_id, $message_text) {
-    $options = get_option('soft_ai_chat_settings');
-    $access_token = $options['zalo_access_token'] ?? '';
-    if (empty($access_token)) return;
-
-    $url = "https://openapi.zalo.me/v3.0/oa/message/cs";
-    
-    wp_remote_post($url, [
-        'headers' => [
-            'access_token' => $access_token,
-            'Content-Type' => 'application/json'
-        ],
-        'body' => json_encode([
-            'recipient' => ['user_id' => $user_id],
-            'message' => ['text' => $message_text]
-        ])
-    ]);
-}
-
 // ---------------------------------------------------------
-// 6. FRONTEND WIDGET (HTML/JS)
+// 6. FRONTEND WIDGET
 // ---------------------------------------------------------
 
 add_action('wp_footer', 'soft_ai_chat_inject_widget');
 
 function soft_ai_chat_inject_widget() {
     $options = get_option('soft_ai_chat_settings');
-    $provider = $options['provider'] ?? 'groq';
-    $key_field = $provider . '_api_key';
-    if (is_admin() || empty($options[$key_field])) return;
+    if (is_admin() || empty($options['provider'])) return;
 
-    $theme_color = $options['theme_color'] ?? '#027DDD';
+    $color = $options['theme_color'] ?? '#027DDD';
+    $welcome = $options['welcome_msg'] ?? 'Xin chào! Bạn cần tìm gì ạ?';
     ?>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
     <style>
-        #soft-ai-chat-trigger {
+        #sac-trigger {
             position: fixed; bottom: 20px; right: 20px; width: 60px; height: 60px;
-            background-color: <?php echo esc_attr($theme_color); ?>; 
-            color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-            cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 999999999; transition: transform 0.2s; font-size: 24px;
+            background: <?php echo esc_attr($color); ?>; color: white; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2); z-index: 999999; transition: all 0.3s;
+            font-size: 28px;
         }
-        #soft-ai-chat-trigger:hover { transform: scale(1.05); }
-        #soft-ai-chat-window {
-            position: fixed; bottom: 90px; right: 20px; width: 350px; height: 350px; max-height: calc(100vh - 125px);
-            background: white; border-radius: 12px; box-shadow: 0 5px 25px rgba(0,0,0,0.2);
-            display: none; flex-direction: column; z-index: 999999999; overflow: hidden; font-family: sans-serif;
-            border: 1px solid #eee;
+        #sac-trigger:hover { transform: scale(1.1); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
+        #sac-window {
+            position: fixed; bottom: 90px; right: 20px; width: 360px; height: 500px;
+            max-height: calc(100vh - 120px); background: #fff; border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2); display: none; flex-direction: column;
+            z-index: 999999; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            border: 1px solid #f0f0f0;
         }
-        .sac-header { background: <?php echo esc_attr($theme_color); ?>; color: white; padding: 15px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
-        .sac-close { cursor: pointer; }
-        #sac-messages { flex: 1; padding: 15px; overflow-y: auto; background: #f9f9f9; display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
-        .sac-msg { padding: 10px 14px; border-radius: 10px; line-height: 1.5; max-width: 85%; word-wrap: break-word; }
-        .sac-msg.user { align-self: flex-end; background: #333; color: white; border-bottom-right-radius: 2px; }
-        .sac-msg.bot { align-self: flex-start; background: #fff; border: 1px solid #ddd; border-bottom-left-radius: 2px; color: #333; }
-        .sac-msg.bot p { margin: 0 0 10px 0; } .sac-msg.bot p:last-child { margin: 0; }
-        .sac-msg.bot ul { margin: 0 0 10px 20px; padding:0; }
-        .sac-msg.bot a { color: <?php echo esc_attr($theme_color); ?>; }
-        .sac-input-area { padding: 10px; border-top: 1px solid #eee; background: white; display: flex; gap: 5px; }
-        #sac-input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 6px; outline: none; }
-        #sac-send { padding: 0 15px; background: <?php echo esc_attr($theme_color); ?>; color: white; border: none; border-radius: 6px; cursor: pointer; }
-        #sac-send:disabled { background: #ccc; }
+        .sac-header { background: <?php echo esc_attr($color); ?>; color: white; padding: 15px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+        .sac-close { cursor: pointer; font-size: 18px; opacity: 0.8; }
+        .sac-close:hover { opacity: 1; }
+        #sac-messages { flex: 1; padding: 15px; overflow-y: auto; background: #f8f9fa; display: flex; flex-direction: column; gap: 12px; font-size: 14px; scroll-behavior: smooth; }
+        .sac-msg { padding: 10px 14px; border-radius: 12px; line-height: 1.5; max-width: 85%; word-wrap: break-word; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .sac-msg.user { align-self: flex-end; background: #222; color: white; border-bottom-right-radius: 2px; }
+        .sac-msg.bot { align-self: flex-start; background: #fff; border: 1px solid #e5e5e5; color: #333; border-bottom-left-radius: 2px; }
+        .sac-msg.bot p { margin: 0 0 8px 0; } .sac-msg.bot p:last-child { margin: 0; }
+        .sac-msg.bot img { max-width: 100%; border-radius: 8px; margin-top: 5px; }
+        .sac-msg.bot strong { color: <?php echo esc_attr($color); ?>; }
+        .sac-input-area { padding: 12px; border-top: 1px solid #eee; background: white; display: flex; gap: 8px; }
+        #sac-input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 20px; outline: none; transition: border 0.2s; }
+        #sac-input:focus { border-color: <?php echo esc_attr($color); ?>; }
+        #sac-send { width: 40px; height: 40px; background: <?php echo esc_attr($color); ?>; color: white; border: none; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        #sac-send:disabled { background: #ccc; cursor: not-allowed; }
+        /* Typing indicator */
+        .typing-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #888; margin-right: 3px; animation: typing 1.4s infinite ease-in-out both; }
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; } .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes typing { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
     </style>
 
-    <div id="soft-ai-chat-trigger" onclick="toggleSoftAiChat()">💬</div>
-    <div id="soft-ai-chat-window">
-        <div class="sac-header"><span>Trợ lý thông minh</span><span class="sac-close" onclick="toggleSoftAiChat()">✕</span></div>
-        <div id="sac-messages"><div class="sac-msg bot">Xin chào! Tôi có thể giúp gì cho bạn?</div></div>
+    <div id="sac-trigger" onclick="toggleSac()">💬</div>
+    <div id="sac-window">
+        <div class="sac-header">
+            <span>Trợ lý AI</span>
+            <span class="sac-close" onclick="toggleSac()">✕</span>
+        </div>
+        <div id="sac-messages">
+            <div class="sac-msg bot"><?php echo esc_html($welcome); ?></div>
+        </div>
         <div class="sac-input-area">
-            <input type="text" id="sac-input" placeholder="Nhập câu hỏi..." onkeypress="handleEnter(event)">
-            <button id="sac-send" onclick="askSoftAiChat()">Gửi</button>
+            <input type="text" id="sac-input" placeholder="Hỏi gì đó..." onkeypress="handleEnter(event)">
+            <button id="sac-send" onclick="sendSac()"><span style="font-size:16px;">➤</span></button>
         </div>
     </div>
 
     <script>
         const apiUrl = '<?php echo esc_url(rest_url('soft-ai-chat/v1/ask')); ?>';
-        function toggleSoftAiChat() {
-            const win = document.getElementById('soft-ai-chat-window');
-            win.style.display = win.style.display === 'flex' ? 'none' : 'flex';
-            if (win.style.display === 'flex') document.getElementById('sac-input').focus();
+        function toggleSac() {
+            const win = document.getElementById('sac-window');
+            const isHidden = win.style.display === '' || win.style.display === 'none';
+            win.style.display = isHidden ? 'flex' : 'none';
+            if (isHidden) setTimeout(() => document.getElementById('sac-input').focus(), 100);
         }
-        function handleEnter(e) { if (e.key === 'Enter') askSoftAiChat(); }
-        async function askSoftAiChat() {
+        
+        function handleEnter(e) { if (e.key === 'Enter') sendSac(); }
+
+        async function sendSac() {
             const input = document.getElementById('sac-input');
             const msgs = document.getElementById('sac-messages');
             const btn = document.getElementById('sac-send');
-            const q = input.value.trim();
-            if (!q) return;
+            const txt = input.value.trim();
+            if (!txt) return;
 
-            msgs.innerHTML += `<div class="sac-msg user">${q.replace(/</g, "&lt;")}</div>`;
-            msgs.innerHTML += `<div class="sac-msg loading" id="sac-loading">...</div>`;
+            msgs.innerHTML += `<div class="sac-msg user">${txt.replace(/</g, "&lt;")}</div>`;
+            const loadingId = 'sac-load-' + Date.now();
+            msgs.innerHTML += `<div class="sac-msg bot" id="${loadingId}"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>`;
             msgs.scrollTop = msgs.scrollHeight;
             input.value = ''; input.disabled = true; btn.disabled = true;
 
             try {
                 const res = await fetch(apiUrl, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question: q })
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': '<?php echo wp_create_nonce('wp_rest'); ?>' },
+                    body: JSON.stringify({ question: txt })
                 });
                 const data = await res.json();
-                document.getElementById('sac-loading').remove();
+                document.getElementById(loadingId).remove();
+                
                 if (data.answer) {
                     msgs.innerHTML += `<div class="sac-msg bot">${marked.parse(data.answer)}</div>`;
                 } else {
-                    msgs.innerHTML += `<div class="sac-msg bot" style="color:red">${data.message || 'Error'}</div>`;
+                    msgs.innerHTML += `<div class="sac-msg bot" style="color:red">Lỗi: ${data.message || 'Unknown'}</div>`;
                 }
             } catch (err) {
-                document.getElementById('sac-loading')?.remove();
-                msgs.innerHTML += `<div class="sac-msg bot" style="color:red">Connection Failed</div>`;
+                document.getElementById(loadingId)?.remove();
+                msgs.innerHTML += `<div class="sac-msg bot" style="color:red">Mất kết nối server.</div>`;
             }
-            input.disabled = false; btn.disabled = false; input.focus(); msgs.scrollTop = msgs.scrollHeight;
+            
+            input.disabled = false; btn.disabled = false; input.focus();
+            msgs.scrollTop = msgs.scrollHeight;
         }
     </script>
     <?php
