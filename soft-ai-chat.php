@@ -364,26 +364,39 @@ function soft_ai_log_chat($question, $answer, $source = 'widget') {
 
 /**
  * Helper: Clean Markdown/HTML for Social Platforms (Facebook/Zalo)
- * Cập nhật: Giải mã HTML entities (ví dụ giá tiền WooCommerce)
+ * Cập nhật: 
+ * - Giải mã HTML entities (giá tiền, ký tự đặc biệt).
+ * - Xử lý bảng Markdown (Table) thành text thường.
  */
 function soft_ai_clean_text_for_social($content) {
-    // 0. Giải mã HTML entities trước (Ví dụ: &nbsp;&#8363; -> " ₫")
-    // Dùng ENT_QUOTES | ENT_HTML5 để xử lý cả dấu nháy và các mã HTML5 mới
+    // 0. Giải mã HTML entities (Ví dụ: &nbsp;&#8363; -> " ₫")
     $content = html_entity_decode($content, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
-    // 1. Chuyển đổi ảnh Markdown: ![Alt](Url) -> Url để Zalo/FB tự preview
+    // --- XỬ LÝ TABLE MARKDOWN ---
+    // 1. Xóa dòng phân cách header của bảng (ví dụ: |---|---| hoặc | :--- | :---: |)
+    $content = preg_replace('/^\|?\s*[-:]+\s*(\|\s*[-:]+\s*)+\|?\s*$/m', '', $content);
+
+    // 2. Xóa dấu | ở đầu và cuối mỗi dòng
+    $content = preg_replace('/^\|\s*/m', '', $content);
+    $content = preg_replace('/\s*\|$/m', '', $content);
+
+    // 3. Thay thế dấu | ở giữa dòng thành " - "
+    $content = str_replace('|', ' - ', $content);
+    // ---------------------------
+
+    // 4. Chuyển đổi ảnh Markdown: ![Alt](Url) -> Url
     $content = preg_replace('/!\[([^\]]*)\]\(([^)]+)\)/', '$2', $content);
     
-    // 2. Chuyển đổi Link Markdown: [Text](Url) -> Text: Url
+    // 5. Chuyển đổi Link Markdown: [Text](Url) -> Text: Url
     $content = preg_replace('/\[([^\]]+)\]\(([^)]+)\)/', '$1: $2', $content);
 
-    // 3. Loại bỏ Bold (**), Italic (__), Code (`)
+    // 6. Loại bỏ Bold (**), Italic (__), Code (`)
     $content = str_replace(['**', '__', '`'], '', $content);
     
-    // 4. Loại bỏ Heading (# Title)
+    // 7. Loại bỏ Heading (# Title)
     $content = preg_replace('/^#+\s*/m', '', $content);
     
-    // 5. Strip toàn bộ HTML tags còn sót lại và trim khoảng trắng thừa
+    // 8. Strip toàn bộ HTML tags & trim
     return trim(wp_strip_all_tags($content));
 }
 
