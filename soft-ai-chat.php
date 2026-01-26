@@ -3,7 +3,7 @@
  * Plugin Name: Soft AI Chat
  * Plugin URI:  https://soft.io.vn/soft-ai-chat
  * Description: An AI Chat Widget (Groq, OpenAI, Gemini) that answers questions based on your website's content.
- * Version:     1.0.0
+ * Version:     1.1.0
  * Author:      Tung Pham
  * License:     GPL-2.0+
  * Text Domain: soft-ai-chat
@@ -11,6 +11,32 @@
 
 if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly
+}
+
+// ---------------------------------------------------------
+// 0. ACTIVATION: CREATE DATABASE TABLE
+// ---------------------------------------------------------
+
+register_activation_hook(__FILE__, 'soft_ai_chat_activate');
+
+function soft_ai_chat_activate() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'soft_ai_chat_logs';
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE $table_name (
+        id mediumint(9) NOT NULL AUTO_INCREMENT,
+        time datetime DEFAULT '0000-00-00 00:00:00' NOT NULL,
+        user_ip varchar(100) DEFAULT '' NOT NULL,
+        provider varchar(50) DEFAULT '' NOT NULL,
+        model varchar(100) DEFAULT '' NOT NULL,
+        question text NOT NULL,
+        answer longtext NOT NULL,
+        PRIMARY KEY  (id)
+    ) $charset_collate;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
 }
 
 // ---------------------------------------------------------
@@ -22,21 +48,42 @@ add_action('admin_init', 'soft_ai_chat_settings_init');
 add_action('admin_enqueue_scripts', 'soft_ai_chat_admin_enqueue');
 
 function soft_ai_chat_add_admin_menu() {
-    add_options_page(
-        'Soft AI Chat Settings',
+    add_menu_page(
         'Soft AI Chat',
+        'Soft AI Chat',
+        'manage_options',
+        'soft-ai-chat',
+        'soft_ai_chat_options_page',
+        'dashicons-format-chat',
+        80
+    );
+    
+    // Add Submenu for Settings (Default)
+    add_submenu_page(
+        'soft-ai-chat',
+        'Settings',
+        'Settings',
         'manage_options',
         'soft-ai-chat',
         'soft_ai_chat_options_page'
     );
+
+    // Add Submenu for History
+    add_submenu_page(
+        'soft-ai-chat',
+        'Chat History',
+        'Chat History',
+        'manage_options',
+        'soft-ai-chat-history',
+        'soft_ai_chat_history_page'
+    );
 }
 
 function soft_ai_chat_admin_enqueue($hook_suffix) {
-    if ($hook_suffix === 'settings_page_soft-ai-chat') {
+    if ($hook_suffix === 'toplevel_page_soft-ai-chat') { // Adjusted for top level
         wp_enqueue_style('wp-color-picker');
         wp_enqueue_script('wp-color-picker');
         
-        // Inline script to toggle API key fields based on provider selection
         wp_add_inline_script('jquery', "
             jQuery(document).ready(function($){ 
                 function toggleFields() {
@@ -56,9 +103,11 @@ function soft_ai_chat_settings_init() {
 
     add_settings_section('soft_ai_chat_main', __('General Configuration', 'soft-ai-chat'), null, 'softAiChat');
 
+    // New Setting: Save History
+    add_settings_field('save_history', __('Save Chat History', 'soft-ai-chat'), 'soft_ai_chat_save_history_render', 'softAiChat', 'soft_ai_chat_main');
+
     add_settings_field('provider', __('Select AI Provider', 'soft-ai-chat'), 'soft_ai_chat_provider_render', 'softAiChat', 'soft_ai_chat_main');
     
-    // API Keys
     add_settings_field('groq_api_key', __('Groq API Key', 'soft-ai-chat'), 'soft_ai_chat_groq_key_render', 'softAiChat', 'soft_ai_chat_main');
     add_settings_field('openai_api_key', __('OpenAI API Key', 'soft-ai-chat'), 'soft_ai_chat_openai_key_render', 'softAiChat', 'soft_ai_chat_main');
     add_settings_field('gemini_api_key', __('Google Gemini API Key', 'soft-ai-chat'), 'soft_ai_chat_gemini_key_render', 'softAiChat', 'soft_ai_chat_main');
@@ -70,6 +119,17 @@ function soft_ai_chat_settings_init() {
 }
 
 // --- Render Functions ---
+
+function soft_ai_chat_save_history_render() {
+    $options = get_option('soft_ai_chat_settings');
+    $val = isset($options['save_history']) ? $options['save_history'] : '0';
+    ?>
+    <label>
+        <input type="checkbox" name="soft_ai_chat_settings[save_history]" value="1" <?php checked($val, '1'); ?> />
+        Save all chat conversations to the database (Viewable in "Chat History").
+    </label>
+    <?php
+}
 
 function soft_ai_chat_provider_render() {
     $options = get_option('soft_ai_chat_settings');
@@ -122,7 +182,6 @@ function soft_ai_chat_temperature_render() {
     $options = get_option('soft_ai_chat_settings');
     $current_val = isset($options['temperature']) ? floatval($options['temperature']) : 0.5;
 
-    // Define the labels for specific ranges
     $get_label = function($val) {
         if ($val <= 0.2) return 'Very Precise';
         if ($val <= 0.4) return 'Precise (Factual)';
@@ -131,16 +190,11 @@ function soft_ai_chat_temperature_render() {
     };
 
     echo "<select name='soft_ai_chat_settings[temperature]'>";
-    
-    // Generate options from 0.1 to 1.0
     for ($i = 1; $i <= 10; $i++) {
-        $val = $i / 10; // 0.1, 0.2, ... 1
+        $val = $i / 10;
         $label = "$val - " . $get_label($val);
-        
-        // Use the WordPress helper function selected() for the active state
         echo "<option value='" . esc_attr($val) . "' " . selected($current_val, $val, false) . ">" . esc_html($label) . "</option>";
     }
-
     echo "</select>";
 }
 
@@ -175,6 +229,105 @@ function soft_ai_chat_options_page() {
 }
 
 // ---------------------------------------------------------
+// 1.5. HISTORY PAGE
+// ---------------------------------------------------------
+
+function soft_ai_chat_history_page() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'soft_ai_chat_logs';
+
+    // Handle Delete
+    if (isset($_POST['delete_log']) && isset($_POST['log_id'])) {
+        $log_id = intval($_POST['log_id']);
+        $wpdb->delete($table_name, ['id' => $log_id]);
+        echo '<div class="updated"><p>Log deleted.</p></div>';
+    }
+    
+    // Handle Clear All
+    if (isset($_POST['clear_all_logs'])) {
+        $wpdb->query("TRUNCATE TABLE $table_name");
+        echo '<div class="updated"><p>All logs cleared.</p></div>';
+    }
+
+    // Pagination setup
+    $per_page = 20;
+    $paged = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
+    $offset = ($paged - 1) * $per_page;
+
+    $total_items = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+    $total_pages = ceil($total_items / $per_page);
+
+    $logs = $wpdb->get_results($wpdb->prepare("SELECT * FROM $table_name ORDER BY time DESC LIMIT %d OFFSET %d", $per_page, $offset));
+
+    ?>
+    <div class="wrap">
+        <h1>Chat History</h1>
+        <form method="post" style="margin-bottom: 20px; text-align:right;">
+            <input type="hidden" name="clear_all_logs" value="1">
+            <button type="submit" class="button button-link-delete" onclick="return confirm('Are you sure you want to delete ALL logs?')">Clear All History</button>
+        </form>
+
+        <table class="wp-list-table widefat fixed striped">
+            <thead>
+                <tr>
+                    <th width="120">Time</th>
+                    <th width="100">Provider</th>
+                    <th width="20%">Question</th>
+                    <th>Answer</th>
+                    <th width="80">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if ($logs): ?>
+                    <?php foreach ($logs as $log): ?>
+                        <tr>
+                            <td><?php echo esc_html($log->time); ?></td>
+                            <td>
+                                <strong><?php echo esc_html($log->provider); ?></strong><br>
+                                <span style="font-size:10px; color:#666;"><?php echo esc_html($log->model); ?></span>
+                            </td>
+                            <td><?php echo esc_html($log->question); ?></td>
+                            <td>
+                                <div style="max-height: 100px; overflow-y: auto; font-size: 13px;">
+                                    <?php echo nl2br(esc_html($log->answer)); ?>
+                                </div>
+                            </td>
+                            <td>
+                                <form method="post">
+                                    <input type="hidden" name="delete_log" value="1">
+                                    <input type="hidden" name="log_id" value="<?php echo $log->id; ?>">
+                                    <button type="submit" class="button button-small">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <tr><td colspan="5">No history found.</td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+
+        <?php if ($total_pages > 1): ?>
+            <div class="tablenav bottom">
+                <div class="tablenav-pages">
+                    <?php
+                    echo paginate_links([
+                        'base' => add_query_arg('paged', '%#%'),
+                        'format' => '',
+                        'prev_text' => __('&laquo;'),
+                        'next_text' => __('&raquo;'),
+                        'total' => $total_pages,
+                        'current' => $paged
+                    ]);
+                    ?>
+                </div>
+            </div>
+        <?php endif; ?>
+    </div>
+    <?php
+}
+
+// ---------------------------------------------------------
 // 2. REST API & LOGIC
 // ---------------------------------------------------------
 
@@ -200,7 +353,6 @@ function soft_ai_clean_divi_content($content) {
 }
 
 function soft_ai_chat_get_context($question) {
-    // Define post types to include Posts, Pages, and WooCommerce Products
     $post_types = ['post', 'page', 'product'];
 
     $args = [
@@ -213,7 +365,6 @@ function soft_ai_chat_get_context($question) {
     $query = new WP_Query($args);
     $posts = $query->posts;
 
-    // Fallback if no search results
     if (empty($posts)) {
         $posts = get_posts([
             'post_type' => $post_types, 
@@ -229,7 +380,6 @@ function soft_ai_chat_get_context($question) {
         $link = get_permalink($post->ID);
         $raw = $post->post_content;
         
-        // If it's a product, you might want to append the price or short description
         if ($post->post_type === 'product' && function_exists('wc_get_product')) {
             $product = wc_get_product($post->ID);
             if ($product) {
@@ -253,6 +403,29 @@ function soft_ai_chat_get_context($question) {
     return empty($context) ? "No content found on website." : $context;
 }
 
+function soft_ai_log_chat($provider, $model, $question, $answer) {
+    global $wpdb;
+    $options = get_option('soft_ai_chat_settings');
+    
+    // Only save if setting is enabled
+    if (empty($options['save_history'])) return;
+
+    $table_name = $wpdb->prefix . 'soft_ai_chat_logs';
+    $user_ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+
+    $wpdb->insert(
+        $table_name,
+        [
+            'time' => current_time('mysql'),
+            'user_ip' => $user_ip,
+            'provider' => $provider,
+            'model' => $model,
+            'question' => $question,
+            'answer' => $answer
+        ]
+    );
+}
+
 function soft_ai_chat_handle_request($request) {
     $options = get_option('soft_ai_chat_settings');
     $provider = $options['provider'] ?? 'groq';
@@ -273,13 +446,13 @@ function soft_ai_chat_handle_request($request) {
                      "Answer strictly based on the 'Context Data' below.\n" .
                      "If you don't know, say you don't know.\n" .
                      "Include links when citing information.\n" .
-                     "DO NOT use Markdown tables. Use bullet points or numbered lists for structured data.\n" . // <--- Dòng thêm mới
+                     "DO NOT use Markdown tables. Use bullet points or numbered lists for structured data.\n" .
                      "Reply in Vietnamese.\n\n" .
                      "Context Data:\n" . $context_data;
 
     // 3. Route to Provider
     $answer = "";
-    $error = null;
+    $res = null;
 
     if ($provider === 'groq') {
         $key = $options['groq_api_key'] ?? '';
@@ -295,6 +468,10 @@ function soft_ai_chat_handle_request($request) {
     }
 
     if (is_wp_error($res)) return $res;
+    
+    // 4. Log the Conversation
+    soft_ai_log_chat($provider, $model, $question, $res);
+
     return rest_ensure_response(['answer' => $res]);
 }
 
