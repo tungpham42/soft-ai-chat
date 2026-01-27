@@ -302,13 +302,27 @@ class Soft_AI_Context {
         }
     }
 
-    public function add_to_cart($product_id, $qty = 1) {
+    public function add_to_cart($product_id, $qty = 1, $variation_id = 0, $variation = []) {
         if ($this->source === 'widget' && function_exists('WC')) {
-            WC()->cart->add_to_cart($product_id, $qty);
+            // Hỗ trợ thêm Variation ID
+            WC()->cart->add_to_cart($product_id, $qty, $variation_id, $variation);
         } else {
+            // Logic cho Social (Facebook/Zalo)
             $cart = $this->get('cart') ?: [];
-            if (isset($cart[$product_id])) $cart[$product_id]['qty'] += $qty;
-            else $cart[$product_id] = ['qty' => $qty];
+            
+            // Dùng Variation ID làm key nếu có, để phân biệt các màu/size khác nhau
+            $cart_key = $variation_id ? $variation_id : $product_id;
+            
+            if (isset($cart[$cart_key])) {
+                $cart[$cart_key]['qty'] += $qty;
+            } else {
+                $cart[$cart_key] = [
+                    'qty' => $qty, 
+                    'product_id' => $product_id, 
+                    'variation_id' => $variation_id,
+                    'variation' => $variation // Lưu thông tin màu/size để hiển thị
+                ];
+            }
             $this->set('cart', $cart);
         }
     }
@@ -441,10 +455,12 @@ function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '')
                      "CRITICAL INSTRUCTIONS:\n" . 
                      "1. If user wants to BUY/ORDER/FIND products, return STRICT JSON only (no markdown):\n" .
                      "   {\"action\": \"find_product\", \"query\": \"product name\"}\n" .
+                     "   {\"action\": \"list_products\"}\n" .
                      "   {\"action\": \"check_cart\"}\n" .
                      "   {\"action\": \"checkout\"}\n" .
-                     "2. For general chat, answer normally in Vietnamese.\n" .
-                     "3. If unknown, admit it politely.";
+                     "2. If user asks general discovery questions like 'bán gì', 'có gì', 'sản phẩm gì', 'menu', use action 'list_products'.\n" .
+                     "3. For general chat, answer normally in Vietnamese.\n" .
+                     "4. If unknown, admit it politely.";
 
     // 4. Call API
     $ai_response = soft_ai_chat_call_api($provider, $model, $system_prompt, $question, $options);
@@ -481,6 +497,49 @@ function soft_ai_process_order_logic($intent, $context) {
     $source = $context->source;
 
     switch ($action) {
+        case 'list_products':
+            // Lấy 5 sản phẩm mới nhất (hoặc bán chạy)
+            $args = [
+                'limit' => 12, 
+                'status' => 'publish', 
+                'orderby' => 'date', // Có thể đổi thành 'popularity' để lấy sp bán chạy
+                'order' => 'DESC'
+            ];
+            $products = wc_get_products($args);
+
+            if (empty($products)) return "Dạ hiện tại shop chưa cập nhật sản phẩm lên web ạ.";
+
+            $msg = "Dạ, bên em đang có những sản phẩm nổi bật này ạ:<br>";
+            if ($source !== 'widget') $msg = "Dạ, bên em đang có những sản phẩm nổi bật này ạ:\n";
+
+            foreach ($products as $p) {
+                $price = $p->get_price_html();
+                $name = $p->get_name();
+                
+                // Hiển thị đẹp (HTML) cho Widget trên web
+                if ($source === 'widget') {
+                    $img_id = $p->get_image_id();
+                    $img_url = $img_id ? wp_get_attachment_image_url($img_id, 'thumbnail') : wc_placeholder_img_src();
+                    
+                    $msg .= "
+                    <div style='display:flex; align-items:center; gap:10px; margin-top:10px; border:1px solid #f0f0f0; padding:8px; border-radius:8px; background:#fff;'>
+                        <img src='{$img_url}' style='width:50px; height:50px; object-fit:cover; border-radius:6px; flex-shrink:0;'>
+                        <div style='font-size:13px; line-height:1.4;'>
+                            <div style='font-weight:bold; color:#333;'>{$name}</div>
+                            <div style='color:#d63031; font-weight:600;'>{$price}</div>
+                        </div>
+                    </div>";
+                } 
+                // Hiển thị dạng text đơn giản cho Facebook/Zalo
+                else {
+                    $plain_price = strip_tags(wc_price($p->get_price()));
+                    $msg .= "- {$name} ({$plain_price})\n";
+                }
+            }
+            
+            $suffix = ($source === 'widget') ? "<br>Bạn quan tâm món nào nhắn tên để em tư vấn nhé!" : "\nBạn quan tâm món nào nhắn tên để em tư vấn nhé!";
+            return $msg . $suffix;
+
         case 'find_product':
             $query = sanitize_text_field($intent['query'] ?? '');
             $products = wc_get_products(['status' => 'publish', 'limit' => 1, 's' => $query]);
@@ -551,10 +610,45 @@ function soft_ai_handle_ordering_steps($message, $step, $context) {
     switch ($step) {
         case 'process_attribute_loop':
             $current_slug = $context->get('current_asking_attr');
+            $clean_message = trim($message); // Xóa khoảng trắng thừa
+            
+            // --- BẮT ĐẦU LOGIC KIỂM TRA (LOOP) ---
+            $valid_options = $context->get('valid_options_for_' . $current_slug);
+            $is_valid = false;
+            
+            // Nếu không có danh sách (lỗi data hoặc attribute tự nhập), tạm cho là đúng
+            if (empty($valid_options)) {
+                $is_valid = true; 
+            } else {
+                // So sánh dữ liệu khách nhập với danh sách cho phép
+                foreach ($valid_options as $opt) {
+                    // So sánh không phân biệt hoa thường (ví dụ: "đỏ" == "Đỏ")
+                    if (mb_strtolower(trim($opt)) === mb_strtolower($clean_message)) {
+                        $is_valid = true;
+                        $clean_message = $opt; // Chuẩn hóa lại theo đúng data gốc để lưu
+                        break;
+                    }
+                }
+            }
+
+            // NẾU SAI: Báo lỗi và RETURN ngay lập tức (Tạo vòng lặp)
+            if (!$is_valid) {
+                $label = wc_attribute_label($current_slug);
+                $list_str = implode(', ', $valid_options);
+                
+                // Trả về câu báo lỗi, không lưu, không chuyển bước
+                return "⚠️ Dạ shop không có $label '{$message}' ạ.\nVui lòng chỉ chọn một trong các loại sau: **$list_str**";
+            }
+            // --- KẾT THÚC LOGIC KIỂM TRA ---
+
+            // Nếu ĐÚNG: Lưu lại và hỏi câu tiếp theo
             $answers = $context->get('attr_answers') ?: [];
             $answers[$current_slug] = $clean_message;
             $context->set('attr_answers', $answers);
             
+            // Xóa cache valid options cũ cho nhẹ bộ nhớ
+            $context->set('valid_options_for_' . $current_slug, null); 
+
             $p = wc_get_product($context->get('pending_product_id'));
             return soft_ai_ask_next_attribute($context, $p);
 
@@ -563,11 +657,50 @@ function soft_ai_handle_ordering_steps($message, $step, $context) {
             if ($qty <= 0) return "Số lượng phải lớn hơn 0. Vui lòng nhập lại:";
             
             $pid = $context->get('pending_product_id');
-            if ($pid) {
-                $context->add_to_cart($pid, $qty);
+            $p = wc_get_product($pid);
+            
+            if ($p) {
+                $var_id = 0;
+                $var_data = [];
+                
+                // --- LOGIC MỚI: Xử lý sản phẩm biến thể ---
+                if ($p->is_type('variable')) {
+                    $collected = $context->get('attr_answers') ?: []; // Dữ liệu đang là Tên (ví dụ: Xanh)
+                    $var_data = [];
+
+                    // Chuyển đổi Tên -> Slug để tìm Variation ID
+                    foreach ($collected as $attr_key => $user_val_name) {
+                        $slug_val = $user_val_name; 
+                        
+                        // Nếu là thuộc tính toàn cục (Taxonomy), lấy slug từ tên
+                        if (taxonomy_exists($attr_key)) {
+                            $term = get_term_by('name', $user_val_name, $attr_key);
+                            if ($term) $slug_val = $term->slug;
+                        } else {
+                            // Nếu là thuộc tính tự tạo (Local), sanitize thành slug
+                            $slug_val = sanitize_title($user_val_name);
+                        }
+                        
+                        // Tạo mảng dữ liệu chuẩn cho WooCommerce tìm kiếm
+                        $var_data['attribute_' . $attr_key] = $slug_val;
+                    }
+
+                    // Tìm ID biến thể khớp với các thuộc tính đã chọn
+                    $data_store = new WC_Product_Data_Store_CPT();
+                    $var_id = $data_store->find_matching_product_variation($p, $var_data);
+                    
+                    if (!$var_id) {
+                         return "Xin lỗi, phiên bản bạn chọn hiện không tồn tại hoặc đã hết hàng. Vui lòng chọn lại.";
+                    }
+                }
+                // ------------------------------------------
+
+                // Gọi hàm add_to_cart với đầy đủ thông tin
+                $context->add_to_cart($pid, $qty, $var_id, $var_data);
+                
                 $context->set('bot_collecting_info_step', null);
                 $total = $context->get_cart_total_string();
-                return "✅ Đã thêm vào giỏ. Tổng đơn: $total.\nGõ 'Thanh toán' để chốt đơn hoặc hỏi mua tiếp.";
+                return "✅ Đã thêm vào giỏ ($qty cái). Tổng tạm tính: $total.\nGõ 'Thanh toán' để chốt đơn hoặc hỏi mua tiếp.";
             }
             return "Có lỗi xảy ra với sản phẩm. Vui lòng tìm lại.";
 
@@ -638,15 +771,34 @@ function soft_ai_handle_ordering_steps($message, $step, $context) {
 
 function soft_ai_ask_next_attribute($context, $product) {
     $queue = $context->get('attr_queue');
+    
+    // Nếu hết câu hỏi (hết thuộc tính) -> Chuyển sang hỏi số lượng
     if (empty($queue)) {
         $context->set('bot_collecting_info_step', 'ask_quantity');
-        return "Bạn muốn lấy số lượng bao nhiêu?";
+        return "Dạ bạn đã chọn đủ thông tin. Bạn muốn lấy số lượng bao nhiêu ạ?";
     }
-    $current = array_shift($queue);
-    $context->set('attr_queue', $queue);
-    $context->set('current_asking_attr', $current);
     
-    return "Bạn chọn " . wc_attribute_label($current) . " nào?";
+    // Lấy thuộc tính tiếp theo trong hàng đợi
+    $current_slug = array_shift($queue);
+    $context->set('attr_queue', $queue); // Cập nhật lại hàng đợi
+    $context->set('current_asking_attr', $current_slug); // Lưu thuộc tính đang hỏi
+    
+    // --- LẤY DANH SÁCH GIÁ TRỊ CỦA THUỘC TÍNH (Mới) ---
+    $terms = wc_get_product_terms($product->get_id(), $current_slug, array('fields' => 'names'));
+    
+    $options_text = "";
+    if (!empty($terms) && !is_wp_error($terms)) {
+        // Lưu danh sách này vào session để bước sau kiểm tra
+        $context->set('valid_options_for_' . $current_slug, $terms);
+        $options_text = "\n(" . implode(', ', $terms) . ")";
+    } else {
+        // Nếu không lấy được terms, set rỗng để bước sau không check lỗi
+        $context->set('valid_options_for_' . $current_slug, []);
+    }
+    // ----------------------------------------------------
+    
+    $label = wc_attribute_label($current_slug);
+    return "Bạn chọn **$label** loại nào?$options_text";
 }
 
 function soft_ai_present_payment_gateways($context, $msg) {
@@ -678,60 +830,95 @@ function soft_ai_finalize_order($context, $gateway_or_code) {
         $order = wc_create_order();
         $opts = get_option('soft_ai_chat_settings');
 
-        // Add Products
-        if ($context->source === 'widget') {
-            foreach (WC()->cart->get_cart() as $values) $order->add_product($values['data'], $values['quantity']);
-            $billing = [
-                'first_name' => WC()->customer->get_billing_first_name(),
-                'phone'      => WC()->customer->get_billing_phone(),
-                'address_1'  => WC()->customer->get_billing_address_1(),
-                'email'      => WC()->customer->get_billing_email() ?: $context->get('temp_email')
-            ];
-        } else {
-            $cart = $context->get('cart') ?: [];
-            foreach ($cart as $pid => $item) {
-                $p = wc_get_product($pid);
-                if($p) $order->add_product($p, $item['qty']);
+        // --- 1. THÊM SẢN PHẨM VÀO ĐƠN ---
+        if ($context->source === 'widget' && function_exists('WC')) {
+            // Lấy từ giỏ hàng thực tế của WooCommerce
+            foreach (WC()->cart->get_cart() as $values) {
+                $order->add_product($values['data'], $values['quantity']);
             }
-            $billing = [
-                'first_name' => $context->get('temp_name'),
-                'phone'      => $context->get('temp_phone'),
-                'address_1'  => $context->get('temp_address'),
-                'email'      => $context->get('temp_email') ?: 'social-guest@example.com'
-            ];
+        } else {
+            // Lấy từ giỏ hàng ảo (Facebook/Zalo)
+            $cart = $context->get('cart') ?: [];
+            foreach ($cart as $key => $item) {
+                // Hỗ trợ cả Product ID và Variation ID (từ lần sửa trước)
+                $pid = isset($item['product_id']) ? $item['product_id'] : $key;
+                $vid = isset($item['variation_id']) ? $item['variation_id'] : 0;
+                
+                $p = wc_get_product($vid ? $vid : $pid);
+                
+                if ($p) {
+                    $args = [];
+                    // Nếu là variation, cần truyền variation_id vào args nếu dùng add_product kiểu cũ
+                    // Nhưng wc_create_order->add_product nhận object product là đủ
+                    $order->add_product($p, $item['qty']);
+                }
+            }
         }
+
+        // --- 2. LƯU THÔNG TIN KHÁCH HÀNG (QUAN TRỌNG) ---
         
-        if (empty($billing['email'])) $billing['email'] = 'no-email@example.com';
-        $order->set_address($billing, 'billing');
+        // Ưu tiên 1: Lấy dữ liệu nóng hổi vừa chat xong (trong Context)
+        $name    = $context->get('temp_name');
+        $phone   = $context->get('temp_phone');
+        $email   = $context->get('temp_email');
+        $address = $context->get('temp_address');
+
+        // Ưu tiên 2: Nếu Context rỗng (khách cũ đã login), lấy từ User Profile
+        if ($context->source === 'widget' && function_exists('WC') && WC()->customer) {
+            if (empty($name))    $name = WC()->customer->get_billing_first_name();
+            if (empty($phone))   $phone = WC()->customer->get_billing_phone();
+            if (empty($email))   $email = WC()->customer->get_billing_email();
+            if (empty($address)) $address = WC()->customer->get_billing_address_1();
+        }
+
+        // Xử lý tách Họ và Tên (Optional - để đẹp data)
+        $parts = explode(' ', trim($name));
+        $last_name  = (count($parts) > 1) ? array_pop($parts) : '';
+        $first_name = implode(' ', $parts);
+        if (empty($first_name)) $first_name = $name; // Fallback
+
+        $billing_info = [
+            'first_name' => $first_name,
+            'last_name'  => $last_name,
+            'phone'      => $phone,
+            'email'      => $email ?: 'no-email@example.com',
+            'address_1'  => $address,
+            'country'    => 'VN', // Bắt buộc phải có Country để tránh lỗi tính phí vận chuyển
+        ];
+
+        // Set địa chỉ cho cả Billing và Shipping
+        $order->set_address($billing_info, 'billing');
+        $order->set_address($billing_info, 'shipping');
+
+        // ------------------------------------------------
 
         $extra_msg = "";
         
-        // Handle Payment Methods
+        // --- 3. XỬ LÝ THANH TOÁN ---
         if ($gateway_or_code === 'vietqr_custom') {
             $order->set_payment_method('bacs');
             $order->set_payment_method_title('VietQR (Chat)');
             $order->calculate_totals();
             
             $bacs_accounts = get_option('woocommerce_bacs_accounts');
-            $bank = ''; $acc = ''; $name = '';
+            $bank = ''; $acc = ''; $name_acc = '';
 
             if (!empty($bacs_accounts) && is_array($bacs_accounts)) {
                 $account = $bacs_accounts[0];
                 $bank = str_replace(' ', '', $account['bank_name']); 
                 $acc  = str_replace(' ', '', $account['account_number']);
-                $raw_name = $account['account_name'];
-                $name = str_replace(' ', '%20', $raw_name);
+                $name_acc = str_replace(' ', '%20', $account['account_name']);
             } else {
                  $bank = str_replace(' ', '', $opts['vietqr_bank'] ?? '');
                  $acc  = str_replace(' ', '', $opts['vietqr_acc'] ?? '');
-                 $name = str_replace(' ', '%20', $opts['vietqr_name'] ?? '');
+                 $name_acc = str_replace(' ', '%20', $opts['vietqr_name'] ?? '');
             }
 
             $amt = intval($order->get_total()); 
             $desc = "DH" . $order->get_id(); 
             
             if ($bank && $acc) {
-                $qr_url = "https://img.vietqr.io/image/{$bank}-{$acc}-compact.jpg?amount={$amt}&addInfo={$desc}&accountName={$name}";
+                $qr_url = "https://img.vietqr.io/image/{$bank}-{$acc}-compact.jpg?amount={$amt}&addInfo={$desc}&accountName={$name_acc}";
                 $extra_msg = "\n\n⬇️ **Quét mã để thanh toán:**\n![VietQR]($qr_url)";
                 if ($context->source == 'widget') $extra_msg = "<br><br><b>Quét mã để thanh toán:</b><br><img src='$qr_url' style='max-width:100%; border-radius:8px;'>";
             } else {
@@ -754,16 +941,23 @@ function soft_ai_finalize_order($context, $gateway_or_code) {
             if ($context->source == 'widget') $extra_msg = "<br><br><a href='$pp_link' target='_blank' style='background:#0070ba;color:white;padding:10px 15px;border-radius:5px;text-decoration:none;font-weight:bold;'>Thanh toán ngay với PayPal</a>";
             
         } else {
-            $order->set_payment_method($gateway_or_code);
+            // Cổng thanh toán chuẩn của Woo
+            if (is_object($gateway_or_code)) {
+                 $order->set_payment_method($gateway_or_code);
+            } else {
+                 $order->set_payment_method($gateway_or_code);
+            }
             $order->calculate_totals();
         }
 
-        $order->update_status('on-hold', "Order via Soft AI Chat ({$context->source})");
+        // Lưu đơn hàng
+        $order->update_status('on-hold', "Order created via Soft AI Chat ({$context->source}). IP: " . ($_SERVER['REMOTE_ADDR'] ?? 'Unknown'));
         
+        // Dọn giỏ hàng
         $context->empty_cart();
         $context->set('bot_collecting_info_step', null);
         
-        $base_msg = "🎉 ĐẶT HÀNG THÀNH CÔNG!\nMã đơn: #" . $order->get_id() . "\nEmail xác nhận đã gửi tới " . $billing['email'] . ".";
+        $base_msg = "🎉 ĐẶT HÀNG THÀNH CÔNG!\nMã đơn: #" . $order->get_id() . "\nEmail xác nhận đã gửi tới " . $billing_info['email'] . ".";
         
         return $base_msg . $extra_msg;
 
