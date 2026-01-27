@@ -3,7 +3,7 @@
  * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment & Social Widgets
  * Plugin URI:  https://soft.io.vn/soft-ai-chat
  * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + VietQR/PayPal + Facebook/Zalo Integration.
- * Version:     2.5.0
+ * Version:     2.5.2
  * Author:      Tung Pham
  * License:     GPL-2.0+
  * Text Domain: soft-ai-chat
@@ -98,6 +98,8 @@ function soft_ai_chat_settings_init() {
 
     // Section 3: UI
     add_settings_section('soft_ai_chat_ui', __('User Interface', 'soft-ai-chat'), null, 'softAiChat');
+    // --- NEW FIELD: Chat Title ---
+    add_settings_field('chat_title', __('Chat Window Title', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_ui', ['field' => 'chat_title', 'default' => 'Trợ lý AI']);
     add_settings_field('welcome_msg', __('Welcome Message', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_ui', ['field' => 'welcome_msg', 'default' => 'Xin chào! Bạn cần tìm gì ạ?', 'width' => '100%']);
     add_settings_field('theme_color', __('Widget Color', 'soft-ai-chat'), 'soft_ai_chat_themecolor_render', 'softAiChat', 'soft_ai_chat_ui');
 
@@ -108,6 +110,7 @@ function soft_ai_chat_settings_init() {
     add_settings_field('fb_sep', '<strong>--- Facebook Messenger ---</strong>', 'soft_ai_render_sep', 'softAiChat', 'soft_ai_chat_social');
     add_settings_field('enable_fb_widget', __('Show FB Chat Bubble', 'soft-ai-chat'), 'soft_ai_render_checkbox', 'softAiChat', 'soft_ai_chat_social', ['field' => 'enable_fb_widget']);
     add_settings_field('fb_page_id', __('Facebook Page ID', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_social', ['field' => 'fb_page_id', 'desc' => 'Required for Chatbox Widget (Find in Page > About).']);
+    add_settings_field('fb_app_access_token', __('Facebook App Access Token', 'soft-ai-chat'), 'soft_ai_render_token', 'softAiChat', 'soft_ai_chat_social', ['field' => 'fb_app_access_token', 'desc' => 'Required for extended API features (Optional).']);
     add_settings_field('fb_page_token', __('Facebook Page Access Token', 'soft-ai-chat'), 'soft_ai_render_token', 'softAiChat', 'soft_ai_chat_social', ['field' => 'fb_page_token', 'desc' => 'Required for AI Auto-Reply.']);
     add_settings_field('fb_verify_token', __('Facebook Verify Token', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_social', ['field' => 'fb_verify_token', 'default' => 'soft_ai_verify']);
 
@@ -989,6 +992,9 @@ function soft_ai_chat_inject_widget() {
 
     $color = $options['theme_color'] ?? '#027DDD';
     $welcome = $options['welcome_msg'] ?? 'Xin chào! Bạn cần tìm gì ạ?';
+    // --- Get the Title Option ---
+    $chat_title = $options['chat_title'] ?? 'Trợ lý AI';
+
     ?>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
     <style>
@@ -1035,7 +1041,7 @@ function soft_ai_chat_inject_widget() {
     <div id="sac-trigger" onclick="toggleSac()">💬</div>
     <div id="sac-window">
         <div class="sac-header">
-            <span>Trợ lý AI</span>
+            <span><?php echo esc_html($chat_title); ?></span>
             <span class="sac-close" onclick="toggleSac()">✕</span>
         </div>
         <div id="sac-messages">
