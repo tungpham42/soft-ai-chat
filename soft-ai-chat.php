@@ -1,9 +1,9 @@
 <?php
 /**
- * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment
+ * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment & Social Widgets
  * Plugin URI:  https://soft.io.vn/soft-ai-chat
- * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + VietQR/PayPal Integration.
- * Version:     2.3.0
+ * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + VietQR/PayPal + Facebook/Zalo Integration.
+ * Version:     2.5.0
  * Author:      Tung Pham
  * License:     GPL-2.0+
  * Text Domain: soft-ai-chat
@@ -61,13 +61,6 @@ function soft_ai_chat_admin_enqueue($hook_suffix) {
         wp_enqueue_script('wp-color-picker');
         wp_add_inline_script('jquery', "
             jQuery(document).ready(function($){ 
-                function toggleFields() {
-                    var provider = $('#soft_ai_provider_select').val();
-                    $('.api-key-row').closest('tr').hide();
-                    $('.row-' + provider).closest('tr').show();
-                }
-                $('#soft_ai_provider_select').change(toggleFields);
-                toggleFields();
                 $('.soft-ai-color-field').wpColorPicker();
             });
         ");
@@ -84,22 +77,17 @@ function soft_ai_chat_settings_init() {
     add_settings_field('groq_api_key', __('Groq API Key', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_main', ['field' => 'groq_api_key', 'class' => 'row-groq']);
     add_settings_field('openai_api_key', __('OpenAI API Key', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_main', ['field' => 'openai_api_key', 'class' => 'row-openai']);
     add_settings_field('gemini_api_key', __('Google Gemini API Key', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_main', ['field' => 'gemini_api_key', 'class' => 'row-gemini']);
-    add_settings_field('model', __('AI Model Name', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_main', ['field' => 'model', 'default' => 'llama-3.3-70b-versatile','desc' => '
-        <strong>Recommended Model IDs (Copy & Paste):</strong><br>
-        🟢 <b>Groq:</b> <code>llama-3.3-70b-versatile</code> (Best), <code>openai/gpt-oss-120b</code><br>
-        🔵 <b>OpenAI:</b> <code>gpt-4o-mini</code> (Fast), <code>gpt-4o</code> (Smart)<br>
-        🟣 <b>Gemini:</b> <code>gemini-1.5-flash</code> (Fast), <code>gemini-1.5-pro</code>
-    ']);
+    add_settings_field('model', __('AI Model Name', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_main', ['field' => 'model', 'default' => 'llama-3.3-70b-versatile','desc' => 'Recommended: <code>llama-3.3-70b-versatile</code> (Groq), <code>gpt-4o-mini</code> (OpenAI)']);
     add_settings_field('temperature', __('Creativity', 'soft-ai-chat'), 'soft_ai_render_number', 'softAiChat', 'soft_ai_chat_main', ['field' => 'temperature', 'default' => 0.5, 'step' => 0.1, 'max' => 1]);
     add_settings_field('max_tokens', __('Max Tokens', 'soft-ai-chat'), 'soft_ai_render_number', 'softAiChat', 'soft_ai_chat_main', ['field' => 'max_tokens', 'default' => 4096]);
-    add_settings_field('system_prompt', __('Custom Persona', 'soft-ai-chat'), 'soft_ai_render_textarea', 'softAiChat', 'soft_ai_chat_main', ['field' => 'system_prompt', 'desc' => 'System instructions for the AI.']);
+    add_settings_field('system_prompt', __('Custom Persona', 'soft-ai-chat'), 'soft_ai_render_textarea', 'softAiChat', 'soft_ai_chat_main', ['field' => 'system_prompt']);
     
     // Section 2: Payment Integration
     add_settings_section('soft_ai_chat_payment', __('Payment Integration (Chat Only)', 'soft-ai-chat'), null, 'softAiChat');
-    add_settings_field('vietqr_bank', __('VietQR Bank Code', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_payment', ['field' => 'vietqr_bank', 'desc' => 'Ví dụ: MB, VCB, ACB, TPB...']);
+    add_settings_field('vietqr_bank', __('VietQR Bank Code', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_payment', ['field' => 'vietqr_bank']);
     add_settings_field('vietqr_acc', __('VietQR Account No', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_payment', ['field' => 'vietqr_acc']);
     add_settings_field('vietqr_name', __('Account Name (Optional)', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_payment', ['field' => 'vietqr_name']);
-    add_settings_field('paypal_me', __('PayPal.me Username', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_payment', ['field' => 'paypal_me', 'desc' => 'Username only (e.g., tungpham).']);
+    add_settings_field('paypal_me', __('PayPal.me Username', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_payment', ['field' => 'paypal_me']);
 
     // Section 3: UI
     add_settings_section('soft_ai_chat_ui', __('User Interface', 'soft-ai-chat'), null, 'softAiChat');
@@ -108,12 +96,23 @@ function soft_ai_chat_settings_init() {
 
     // Section 4: Social Integration
     add_settings_section('soft_ai_chat_social', __('Social Media Integration', 'soft-ai-chat'), 'soft_ai_chat_social_desc', 'softAiChat');
-    add_settings_field('fb_page_token', __('Facebook Page Access Token', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_social', ['field' => 'fb_page_token']);
+    
+    // Facebook
+    add_settings_field('fb_sep', '<strong>--- Facebook Messenger ---</strong>', 'soft_ai_render_sep', 'softAiChat', 'soft_ai_chat_social');
+    add_settings_field('enable_fb_widget', __('Show FB Chat Bubble', 'soft-ai-chat'), 'soft_ai_render_checkbox', 'softAiChat', 'soft_ai_chat_social', ['field' => 'enable_fb_widget']);
+    add_settings_field('fb_page_id', __('Facebook Page ID', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_social', ['field' => 'fb_page_id', 'desc' => 'Required for Chatbox Widget (Find in Page > About).']);
+    add_settings_field('fb_page_token', __('Facebook Page Access Token', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_social', ['field' => 'fb_page_token', 'desc' => 'Required for AI Auto-Reply.']);
     add_settings_field('fb_verify_token', __('Facebook Verify Token', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_social', ['field' => 'fb_verify_token', 'default' => 'soft_ai_verify']);
-    add_settings_field('zalo_access_token', __('Zalo OA Access Token', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_social', ['field' => 'zalo_access_token']);
+
+    // Zalo
+    add_settings_field('zalo_sep', '<strong>--- Zalo OA ---</strong>', 'soft_ai_render_sep', 'softAiChat', 'soft_ai_chat_social');
+    add_settings_field('enable_zalo_widget', __('Show Zalo Widget', 'soft-ai-chat'), 'soft_ai_render_checkbox', 'softAiChat', 'soft_ai_chat_social', ['field' => 'enable_zalo_widget']);
+    add_settings_field('zalo_oa_id', __('Zalo OA ID', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_social', ['field' => 'zalo_oa_id', 'desc' => 'Required for Chat Widget.']);
+    add_settings_field('zalo_access_token', __('Zalo OA Access Token', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_social', ['field' => 'zalo_access_token', 'desc' => 'Required for AI Auto-Reply.']);
 }
 
 // --- Generic Render Helpers ---
+function soft_ai_render_sep() { echo ''; }
 function soft_ai_render_text($args) {
     $options = get_option('soft_ai_chat_settings');
     $val = $options[$args['field']] ?? ($args['default'] ?? '');
@@ -131,7 +130,9 @@ function soft_ai_render_password($args) {
     $options = get_option('soft_ai_chat_settings');
     $val = $options[$args['field']] ?? '';
     $cls = $args['class'] ?? '';
-    echo "<div class='api-key-row {$cls}'><input type='password' name='soft_ai_chat_settings[{$args['field']}]' value='" . esc_attr($val) . "' style='width:400px;'></div>";
+    echo "<div class='api-key-row {$cls}'><input type='password' name='soft_ai_chat_settings[{$args['field']}]' value='" . esc_attr($val) . "' style='width:400px;'>";
+    if(isset($args['desc'])) echo "<p class='description'>{$args['desc']}</p>";
+    echo "</div>";
 }
 function soft_ai_render_number($args) {
     $options = get_option('soft_ai_chat_settings');
@@ -165,7 +166,8 @@ function soft_ai_chat_themecolor_render() {
 }
 
 function soft_ai_chat_social_desc() {
-    echo '<p>Webhooks: <code>' . rest_url('soft-ai-chat/v1/webhook/facebook') . '</code> | <code>' . rest_url('soft-ai-chat/v1/webhook/zalo') . '</code></p>';
+    echo '<p>Configure webhooks to connect AI to social platforms. Use the "Page ID" and "OA ID" to display chat bubbles on your site.</p>';
+    echo '<p><strong>Webhooks URL:</strong><br>FB: <code>' . rest_url('soft-ai-chat/v1/webhook/facebook') . '</code><br>Zalo: <code>' . rest_url('soft-ai-chat/v1/webhook/zalo') . '</code></p>';
 }
 
 function soft_ai_chat_options_page() {
@@ -369,39 +371,17 @@ function soft_ai_log_chat($question, $answer, $source = 'widget') {
 
 /**
  * Helper: Clean Markdown/HTML for Social Platforms (Facebook/Zalo)
- * Cập nhật: 
- * - Giải mã HTML entities (giá tiền, ký tự đặc biệt).
- * - Xử lý bảng Markdown (Table) thành text thường.
  */
 function soft_ai_clean_text_for_social($content) {
-    // 0. Giải mã HTML entities (Ví dụ: &nbsp;&#8363; -> " ₫")
     $content = html_entity_decode($content, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-
-    // --- XỬ LÝ TABLE MARKDOWN ---
-    // 1. Xóa dòng phân cách header của bảng (ví dụ: |---|---| hoặc | :--- | :---: |)
     $content = preg_replace('/^\|?\s*[-:]+\s*(\|\s*[-:]+\s*)+\|?\s*$/m', '', $content);
-
-    // 2. Xóa dấu | ở đầu và cuối mỗi dòng
     $content = preg_replace('/^\|\s*/m', '', $content);
     $content = preg_replace('/\s*\|$/m', '', $content);
-
-    // 3. Thay thế dấu | ở giữa dòng thành " - "
     $content = str_replace('|', ' - ', $content);
-    // ---------------------------
-
-    // 4. Chuyển đổi ảnh Markdown: ![Alt](Url) -> Url
     $content = preg_replace('/!\[([^\]]*)\]\(([^)]+)\)/', '$2', $content);
-    
-    // 5. Chuyển đổi Link Markdown: [Text](Url) -> Text: Url
     $content = preg_replace('/\[([^\]]+)\]\(([^)]+)\)/', '$1: $2', $content);
-
-    // 6. Loại bỏ Bold (**), Italic (__), Code (`)
     $content = str_replace(['**', '__', '`'], '', $content);
-    
-    // 7. Loại bỏ Heading (# Title)
     $content = preg_replace('/^#+\s*/m', '', $content);
-    
-    // 8. Strip toàn bộ HTML tags & trim
     return trim(wp_strip_all_tags($content));
 }
 
@@ -422,7 +402,6 @@ function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '')
 
     if ($current_step && class_exists('WooCommerce')) {
         $response = soft_ai_handle_ordering_steps($question, $current_step, $context);
-        // Xử lý plain text nếu là FB/Zalo
         if ($platform === 'facebook' || $platform === 'zalo') {
             return soft_ai_clean_text_for_social($response);
         }
@@ -465,7 +444,6 @@ function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '')
     
     if (json_last_error() === JSON_ERROR_NONE && isset($intent['action']) && class_exists('WooCommerce')) {
         $response = soft_ai_process_order_logic($intent, $context);
-        // Xử lý plain text nếu là FB/Zalo
         if ($platform === 'facebook' || $platform === 'zalo') {
             return soft_ai_clean_text_for_social($response);
         }
@@ -712,31 +690,20 @@ function soft_ai_finalize_order($context, $gateway_or_code) {
         
         // Handle Payment Methods
         if ($gateway_or_code === 'vietqr_custom') {
-            $order->set_payment_method('bacs'); // Gán là chuyển khoản ngân hàng
+            $order->set_payment_method('bacs');
             $order->set_payment_method_title('VietQR (Chat)');
             $order->calculate_totals();
             
-            // --- FIX: LẤY DỮ LIỆU TỪ WOOCOMMERCE BACS SETTINGS ---
-            // Lấy danh sách tài khoản đã cài trong WooCommerce > Payments > Direct bank transfer
             $bacs_accounts = get_option('woocommerce_bacs_accounts');
-            
             $bank = ''; $acc = ''; $name = '';
 
             if (!empty($bacs_accounts) && is_array($bacs_accounts)) {
-                // Lấy tài khoản đầu tiên trong danh sách
                 $account = $bacs_accounts[0];
-                
-                // 1. Tên ngân hàng (Lưu ý: Trong Woo phải điền đúng mã, ví dụ "MB" hoặc "970407", không điền "MB Bank")
                 $bank = str_replace(' ', '', $account['bank_name']); 
-                
-                // 2. Số tài khoản
                 $acc  = str_replace(' ', '', $account['account_number']);
-                
-                // 3. Tên chủ tài khoản
                 $raw_name = $account['account_name'];
                 $name = str_replace(' ', '%20', $raw_name);
             } else {
-                 // Fallback: Nếu Woo chưa cài, lấy từ Plugin Settings cũ
                  $bank = str_replace(' ', '', $opts['vietqr_bank'] ?? '');
                  $acc  = str_replace(' ', '', $opts['vietqr_acc'] ?? '');
                  $name = str_replace(' ', '%20', $opts['vietqr_name'] ?? '');
@@ -745,7 +712,6 @@ function soft_ai_finalize_order($context, $gateway_or_code) {
             $amt = intval($order->get_total()); 
             $desc = "DH" . $order->get_id(); 
             
-            // Chỉ tạo link nếu có đủ thông tin
             if ($bank && $acc) {
                 $qr_url = "https://img.vietqr.io/image/{$bank}-{$acc}-compact.jpg?amount={$amt}&addInfo={$desc}&accountName={$name}";
                 $extra_msg = "\n\n⬇️ **Quét mã để thanh toán:**\n![VietQR]($qr_url)";
@@ -753,7 +719,6 @@ function soft_ai_finalize_order($context, $gateway_or_code) {
             } else {
                 $extra_msg = "\n\n(Vui lòng cập nhật thông tin ngân hàng trong cài đặt WooCommerce)";
             }
-            // --- END FIX ---
             
         } elseif ($gateway_or_code === 'paypal_custom') {
             $order->set_payment_method('paypal');
@@ -954,10 +919,54 @@ function soft_ai_chat_webhook_zalo($request) {
 }
 
 // ---------------------------------------------------------
-// 6. FRONTEND WIDGET
+// 6. FRONTEND WIDGETS
 // ---------------------------------------------------------
 
 add_action('wp_footer', 'soft_ai_chat_inject_widget');
+add_action('wp_footer', 'soft_ai_social_widgets_render');
+
+function soft_ai_social_widgets_render() {
+    $options = get_option('soft_ai_chat_settings');
+
+    // 1. Render Zalo Chat Widget
+    if (!empty($options['enable_zalo_widget']) && !empty($options['zalo_oa_id'])) {
+        $zalo_id = esc_attr($options['zalo_oa_id']);
+        $welcome = esc_attr($options['welcome_msg'] ?? 'Xin chào!');
+        echo <<<HTML
+        <div class="zalo-chat-widget" data-oaid="{$zalo_id}" data-welcome-message="{$welcome}" data-autopopup="0" data-width="350" data-height="420"></div>
+        <script src="https://sp.zalo.me/plugins/sdk.js"></script>
+HTML;
+    }
+
+    // 2. Render Facebook Customer Chat
+    if (!empty($options['enable_fb_widget']) && !empty($options['fb_page_id'])) {
+        $fb_id = esc_attr($options['fb_page_id']);
+        echo <<<HTML
+        <div id="fb-root"></div>
+        <div id="fb-customer-chat" class="fb-customerchat"></div>
+        <script>
+        var chatbox = document.getElementById('fb-customer-chat');
+        chatbox.setAttribute("page_id", "{$fb_id}");
+        chatbox.setAttribute("attribution", "biz_inbox");
+
+        window.fbAsyncInit = function() {
+            FB.init({
+                xfbml            : true,
+                version          : 'v18.0'
+            });
+        };
+
+        (function(d, s, id) {
+            var js, fjs = d.getElementsByTagName(s)[0];
+            if (d.getElementById(id)) return;
+            js = d.createElement(s); js.id = id;
+            js.src = 'https://connect.facebook.net/vi_VN/sdk/xfbml.customerchat.js';
+            fjs.parentNode.insertBefore(js, fjs);
+        }(document, 'script', 'facebook-jssdk'));
+        </script>
+HTML;
+    }
+}
 
 function soft_ai_chat_inject_widget() {
     $options = get_option('soft_ai_chat_settings');
@@ -975,6 +984,10 @@ function soft_ai_chat_inject_widget() {
             box-shadow: 0 4px 15px rgba(0,0,0,0.2); z-index: 999999; transition: all 0.3s;
             font-size: 28px;
         }
+        
+        /* Tránh đè lên widget Zalo (thường nằm góc phải dưới) */
+        .zalo-chat-widget + #sac-trigger { bottom: 90px; }
+
         #sac-trigger:hover { transform: scale(1.1); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
         #sac-window {
             position: fixed; bottom: 90px; right: 20px; width: 360px; height: 500px;
