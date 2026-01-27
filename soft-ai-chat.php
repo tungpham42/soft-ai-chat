@@ -61,6 +61,13 @@ function soft_ai_chat_admin_enqueue($hook_suffix) {
         wp_enqueue_script('wp-color-picker');
         wp_add_inline_script('jquery', "
             jQuery(document).ready(function($){ 
+                function toggleFields() {
+                    var provider = $('#soft_ai_provider_select').val();
+                    $('.api-key-row').closest('tr').hide();
+                    $('.row-' + provider).closest('tr').show();
+                }
+                $('#soft_ai_provider_select').change(toggleFields);
+                toggleFields();
                 $('.soft-ai-color-field').wpColorPicker();
             });
         ");
@@ -101,14 +108,14 @@ function soft_ai_chat_settings_init() {
     add_settings_field('fb_sep', '<strong>--- Facebook Messenger ---</strong>', 'soft_ai_render_sep', 'softAiChat', 'soft_ai_chat_social');
     add_settings_field('enable_fb_widget', __('Show FB Chat Bubble', 'soft-ai-chat'), 'soft_ai_render_checkbox', 'softAiChat', 'soft_ai_chat_social', ['field' => 'enable_fb_widget']);
     add_settings_field('fb_page_id', __('Facebook Page ID', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_social', ['field' => 'fb_page_id', 'desc' => 'Required for Chatbox Widget (Find in Page > About).']);
-    add_settings_field('fb_page_token', __('Facebook Page Access Token', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_social', ['field' => 'fb_page_token', 'desc' => 'Required for AI Auto-Reply.']);
+    add_settings_field('fb_page_token', __('Facebook Page Access Token', 'soft-ai-chat'), 'soft_ai_render_token', 'softAiChat', 'soft_ai_chat_social', ['field' => 'fb_page_token', 'desc' => 'Required for AI Auto-Reply.']);
     add_settings_field('fb_verify_token', __('Facebook Verify Token', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_social', ['field' => 'fb_verify_token', 'default' => 'soft_ai_verify']);
 
     // Zalo
     add_settings_field('zalo_sep', '<strong>--- Zalo OA ---</strong>', 'soft_ai_render_sep', 'softAiChat', 'soft_ai_chat_social');
     add_settings_field('enable_zalo_widget', __('Show Zalo Widget', 'soft-ai-chat'), 'soft_ai_render_checkbox', 'softAiChat', 'soft_ai_chat_social', ['field' => 'enable_zalo_widget']);
     add_settings_field('zalo_oa_id', __('Zalo OA ID', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_social', ['field' => 'zalo_oa_id', 'desc' => 'Required for Chat Widget.']);
-    add_settings_field('zalo_access_token', __('Zalo OA Access Token', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_social', ['field' => 'zalo_access_token', 'desc' => 'Required for AI Auto-Reply.']);
+    add_settings_field('zalo_access_token', __('Zalo OA Access Token', 'soft-ai-chat'), 'soft_ai_render_token', 'softAiChat', 'soft_ai_chat_social', ['field' => 'zalo_access_token', 'desc' => 'Required for AI Auto-Reply.']);
 }
 
 // --- Generic Render Helpers ---
@@ -131,6 +138,14 @@ function soft_ai_render_password($args) {
     $val = $options[$args['field']] ?? '';
     $cls = $args['class'] ?? '';
     echo "<div class='api-key-row {$cls}'><input type='password' name='soft_ai_chat_settings[{$args['field']}]' value='" . esc_attr($val) . "' style='width:400px;'>";
+    if(isset($args['desc'])) echo "<p class='description'>{$args['desc']}</p>";
+    echo "</div>";
+}
+function soft_ai_render_token($args) {
+    $options = get_option('soft_ai_chat_settings');
+    $val = $options[$args['field']] ?? '';
+    $cls = $args['class'] ?? '';
+    echo "<div class='api-key-token-row {$cls}'><input type='password' name='soft_ai_chat_settings[{$args['field']}]' value='" . esc_attr($val) . "' style='width:400px;'>";
     if(isset($args['desc'])) echo "<p class='description'>{$args['desc']}</p>";
     echo "</div>";
 }
