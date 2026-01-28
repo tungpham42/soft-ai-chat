@@ -212,29 +212,81 @@ function soft_ai_chat_history_page() {
     global $wpdb;
     $table_name = $wpdb->prefix . 'soft_ai_chat_logs';
 
+    // Handle Deletion
     if (isset($_POST['delete_log']) && check_admin_referer('delete_log_' . $_POST['log_id'])) {
         $wpdb->delete($table_name, ['id' => intval($_POST['log_id'])]);
         echo '<div class="updated"><p>Log deleted.</p></div>';
     }
+    // Handle Clear All
     if (isset($_POST['clear_all_logs']) && check_admin_referer('clear_all_logs')) {
         $wpdb->query("TRUNCATE TABLE $table_name");
         echo '<div class="updated"><p>All logs cleared.</p></div>';
     }
 
+    // Pagination Logic
     $per_page = 20;
     $paged = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
     $offset = ($paged - 1) * $per_page;
     $total_items = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
     $total_pages = ceil($total_items / $per_page);
     $logs = $wpdb->get_results($wpdb->prepare("SELECT * FROM $table_name ORDER BY time DESC LIMIT %d OFFSET %d", $per_page, $offset));
+    
     ?>
     <div class="wrap">
         <h1>Chat History</h1>
+        
         <form method="post" style="margin-bottom: 20px; text-align:right;">
             <?php wp_nonce_field('clear_all_logs'); ?>
             <input type="hidden" name="clear_all_logs" value="1">
-            <button type="submit" class="button button-link-delete" onclick="return confirm('Delete ALL logs?')">Clear All History</button>
+            <button type="submit" class="button button-link-delete" onclick="return confirm('Are you sure you want to delete ALL logs? This cannot be undone.')">Clear All History</button>
         </form>
+
+        <style>
+            .sac-modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 100000; justify-content: center; align-items: center; }
+            .sac-modal-box { background: #fff; width: 800px; max-width: 90%; max-height: 90vh; border-radius: 8px; box-shadow: 0 4px 25px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; animation: sacFadeIn 0.2s ease-out; }
+            .sac-modal-header { padding: 15px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; }
+            .sac-modal-title { font-size: 18px; font-weight: 600; margin: 0; color: #333; }
+            .sac-modal-close { cursor: pointer; font-size: 24px; color: #999; line-height: 1; transition: color 0.2s; }
+            .sac-modal-close:hover { color: #d63031; }
+            .sac-modal-body { padding: 20px; overflow-y: auto; font-size: 14px; line-height: 1.6; background: #fff; }
+            .sac-modal-row { margin-bottom: 20px; }
+            .sac-modal-label { font-weight: bold; display: block; margin-bottom: 6px; color: #555; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+            .sac-modal-content-box { background: #f9f9f9; padding: 12px; border-radius: 4px; border: 1px solid #e0e0e0; white-space: pre-wrap; word-wrap: break-word; font-family: monospace; max-height: 300px; overflow-y: auto; }
+            .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; background: #e5e5e5; font-size: 11px; font-weight: 600; }
+            @keyframes sacFadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        </style>
+
+        <script>
+            function openSacLogModal(id) {
+                // Get data from hidden elements
+                var time = document.getElementById('log-time-' + id).innerHTML;
+                var source = document.getElementById('log-source-' + id).innerHTML;
+                var provider = document.getElementById('log-provider-' + id).innerHTML;
+                var question = document.getElementById('log-question-' + id).innerHTML;
+                var answer = document.getElementById('log-answer-' + id).innerHTML;
+
+                // Populate Modal
+                document.getElementById('sac-modal-meta').innerHTML = time + ' | ' + source + ' | ' + provider;
+                document.getElementById('sac-modal-question-box').innerHTML = question;
+                document.getElementById('sac-modal-answer-box').innerHTML = answer; // Keep HTML for formatting
+
+                // Show
+                document.getElementById('sac-log-modal').style.display = 'flex';
+            }
+
+            function closeSacLogModal() {
+                document.getElementById('sac-log-modal').style.display = 'none';
+            }
+            
+            // Close on click outside
+            window.onclick = function(event) {
+                var modal = document.getElementById('sac-log-modal');
+                if (event.target == modal) {
+                    modal.style.display = "none";
+                }
+            }
+        </script>
+
         <table class="wp-list-table widefat fixed striped">
             <thead>
                 <tr>
@@ -242,8 +294,8 @@ function soft_ai_chat_history_page() {
                     <th width="80">Source</th>
                     <th width="100">Provider</th>
                     <th width="20%">Question</th>
-                    <th>Answer</th>
-                    <th width="60">Action</th>
+                    <th>Answer (Preview)</th>
+                    <th width="120">Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -252,20 +304,53 @@ function soft_ai_chat_history_page() {
                     <td><?php echo esc_html($log->time); ?></td>
                     <td><span class="badge"><?php echo esc_html($log->source); ?></span></td>
                     <td><?php echo esc_html($log->provider); ?></td>
-                    <td><?php echo esc_html($log->question); ?></td>
-                    <td><div style="max-height:80px;overflow-y:auto;"><?php echo esc_html($log->answer); ?></div></td>
+                    <td><?php echo esc_html(mb_strimwidth($log->question, 0, 50, '...')); ?></td>
+                    <td><?php echo esc_html(mb_strimwidth(strip_tags($log->answer), 0, 80, '...')); ?></td>
+                    
                     <td>
-                        <form method="post">
-                            <?php wp_nonce_field('delete_log_' . $log->id); ?>
-                            <input type="hidden" name="delete_log" value="1"><input type="hidden" name="log_id" value="<?php echo $log->id; ?>">
-                            <button class="button button-small">Del</button>
-                        </form>
+                        <div style="display:flex; gap: 5px; align-items: center;">
+                            <button type="button" class="button button-secondary button-small" onclick="openSacLogModal(<?php echo $log->id; ?>)">View</button>
+                            
+                            <form method="post" style="display:inline-block; margin:0;">
+                                <?php wp_nonce_field('delete_log_' . $log->id); ?>
+                                <input type="hidden" name="delete_log" value="1">
+                                <input type="hidden" name="log_id" value="<?php echo $log->id; ?>">
+                                <button class="button button-link-delete" style="color: #a00;" onclick="return confirm('Delete this log?')">Del</button>
+                            </form>
+                        </div>
+
+                        <div id="log-time-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->time); ?></div>
+                        <div id="log-source-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->source); ?></div>
+                        <div id="log-provider-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->provider); ?></div>
+                        <div id="log-question-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->question); ?></div>
+                        <div id="log-answer-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->answer); ?></div>
                     </td>
                 </tr>
                 <?php endforeach; else: echo '<tr><td colspan="6">No history found.</td></tr>'; endif; ?>
             </tbody>
         </table>
+        
         <?php if ($total_pages > 1): echo paginate_links(['base' => add_query_arg('paged', '%#%'), 'total' => $total_pages, 'current' => $paged]); endif; ?>
+
+        <div id="sac-log-modal" class="sac-modal-overlay">
+            <div class="sac-modal-box">
+                <div class="sac-modal-header">
+                    <h3 class="sac-modal-title">Log Details <span id="sac-modal-meta" style="font-weight:normal; font-size:12px; color:#666; margin-left:10px;"></span></h3>
+                    <div class="sac-modal-close" onclick="closeSacLogModal()">×</div>
+                </div>
+                <div class="sac-modal-body">
+                    <div class="sac-modal-row">
+                        <span class="sac-modal-label">User Question:</span>
+                        <div class="sac-modal-content-box" id="sac-modal-question-box"></div>
+                    </div>
+                    <div class="sac-modal-row">
+                        <span class="sac-modal-label">AI Answer:</span>
+                        <div class="sac-modal-content-box" id="sac-modal-answer-box" style="background:#fff; border-color:#ccc; min-height:100px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
     <?php
 }
@@ -424,7 +509,7 @@ function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '')
     if (empty($user_id)) $user_id = get_current_user_id() ?: md5($_SERVER['REMOTE_ADDR']);
     $context = new Soft_AI_Context($user_id, $platform);
     
-    // 1. Flow Interruption
+    // 1. Flow Interruption (Huỷ bỏ)
     $current_step = $context->get('bot_collecting_info_step');
     $cancel_keywords = ['huỷ', 'hủy', 'cancel', 'thôi', 'stop', 'thoát'];
     if (in_array(mb_strtolower(trim($question)), $cancel_keywords)) {
@@ -432,6 +517,7 @@ function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '')
         return "Đã hủy thao tác hiện tại. Mình có thể giúp gì khác không?";
     }
 
+    // 2. Handle Ongoing Steps (Đang nhập liệu: Tên, SĐT, Địa chỉ...)
     if ($current_step && class_exists('WooCommerce')) {
         $response = soft_ai_handle_ordering_steps($question, $current_step, $context);
         if ($platform === 'facebook' || $platform === 'zalo') {
@@ -440,12 +526,40 @@ function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '')
         return $response;
     }
 
-    // 2. Setup AI
+    // --- [NEW UPDATE START] ---
+    // 3. Fast-Track Checkout (Bắt dính từ khóa thanh toán để bỏ qua RAG/AI)
+    // Nếu người dùng muốn thanh toán, không cần tìm bài viết (post/page) làm gì cả.
+    $checkout_triggers = ['thanh toán', 'thanh toan', 'xác nhận', 'xac nhan', 'chốt đơn', 'chot don', 'đặt hàng', 'dat hang', 'mua ngay', 'pay'];
+    $clean_q = mb_strtolower(trim($question));
+    
+    // Kiểm tra: Nếu câu hỏi chứa từ khóa VÀ giỏ hàng không trống (hoặc cứ cho chạy logic check cart)
+    $is_checkout_intent = false;
+    foreach ($checkout_triggers as $trigger) {
+        if (strpos($clean_q, $trigger) !== false) {
+            $is_checkout_intent = true;
+            break;
+        }
+    }
+
+    if ($is_checkout_intent && class_exists('WooCommerce')) {
+        // Gọi thẳng vào logic xử lý đơn hàng với action 'checkout'
+        // Việc này giúp phản hồi cực nhanh và chính xác, không phụ thuộc vào độ thông minh của AI
+        $response = soft_ai_process_order_logic(['action' => 'checkout'], $context);
+        
+        if ($platform === 'facebook' || $platform === 'zalo') {
+            return soft_ai_clean_text_for_social($response);
+        }
+        return $response;
+    }
+    // --- [NEW UPDATE END] ---
+
+    // 4. Setup AI (Nếu không phải thanh toán hay nhập liệu thì mới chạy AI)
     $options = get_option('soft_ai_chat_settings');
     $provider = $options['provider'] ?? 'groq';
     $model = $options['model'] ?? 'llama-3.3-70b-versatile';
     
-    // 3. Prompt Engineering
+    // 5. Prompt Engineering & RAG (Tìm kiếm nội dung website)
+    // Code chỉ chạy xuống đây nếu KHÔNG khớp các điều kiện trên
     $site_context = soft_ai_chat_get_context($question);
     $user_instruction = $options['system_prompt'] ?? '';
     
@@ -462,11 +576,11 @@ function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '')
                      "3. For general chat, answer normally in Vietnamese.\n" .
                      "4. If unknown, admit it politely.";
 
-    // 4. Call API
+    // 6. Call API
     $ai_response = soft_ai_chat_call_api($provider, $model, $system_prompt, $question, $options);
     if (is_wp_error($ai_response)) return "Lỗi hệ thống: " . $ai_response->get_error_message();
 
-    // 5. Clean & Parse JSON
+    // 7. Clean & Parse JSON
     $clean_response = trim($ai_response);
     if (preg_match('/```json\s*(.*?)\s*```/s', $clean_response, $matches)) {
         $clean_response = $matches[1];
@@ -484,7 +598,7 @@ function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '')
         return $response;
     }
 
-    // 6. Return Text
+    // 8. Return Text
     if ($platform === 'facebook' || $platform === 'zalo') {
         return soft_ai_clean_text_for_social($clean_response);
     }
