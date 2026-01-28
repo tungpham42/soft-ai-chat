@@ -212,18 +212,17 @@ function soft_ai_chat_history_page() {
     global $wpdb;
     $table_name = $wpdb->prefix . 'soft_ai_chat_logs';
 
-    // Handle Deletion
+    // Xử lý xóa log
     if (isset($_POST['delete_log']) && check_admin_referer('delete_log_' . $_POST['log_id'])) {
         $wpdb->delete($table_name, ['id' => intval($_POST['log_id'])]);
         echo '<div class="updated"><p>Log deleted.</p></div>';
     }
-    // Handle Clear All
     if (isset($_POST['clear_all_logs']) && check_admin_referer('clear_all_logs')) {
         $wpdb->query("TRUNCATE TABLE $table_name");
         echo '<div class="updated"><p>All logs cleared.</p></div>';
     }
 
-    // Pagination Logic
+    // Phân trang
     $per_page = 20;
     $paged = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
     $offset = ($paged - 1) * $per_page;
@@ -231,6 +230,13 @@ function soft_ai_chat_history_page() {
     $total_pages = ceil($total_items / $per_page);
     $logs = $wpdb->get_results($wpdb->prepare("SELECT * FROM $table_name ORDER BY time DESC LIMIT %d OFFSET %d", $per_page, $offset));
     
+    // Hàm lấy IP thật (nhúng trực tiếp để tiện dùng)
+    if (!function_exists('soft_ai_get_client_ip_display')) {
+        function soft_ai_get_client_ip_display($ip) {
+            return $ip ? $ip : 'Unknown';
+        }
+    }
+
     ?>
     <div class="wrap">
         <h1>Chat History</h1>
@@ -238,39 +244,48 @@ function soft_ai_chat_history_page() {
         <form method="post" style="margin-bottom: 20px; text-align:right;">
             <?php wp_nonce_field('clear_all_logs'); ?>
             <input type="hidden" name="clear_all_logs" value="1">
-            <button type="submit" class="button button-link-delete" onclick="return confirm('Are you sure you want to delete ALL logs? This cannot be undone.')">Clear All History</button>
+            <button type="submit" class="button button-link-delete" onclick="return confirm('Delete ALL logs?')">Clear All History</button>
         </form>
 
         <style>
             .sac-modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 100000; justify-content: center; align-items: center; }
-            .sac-modal-box { background: #fff; width: 800px; max-width: 90%; max-height: 90vh; border-radius: 8px; box-shadow: 0 4px 25px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; animation: sacFadeIn 0.2s ease-out; }
+            .sac-modal-box { background: #fff; width: 800px; max-width: 90%; max-height: 90vh; border-radius: 8px; box-shadow: 0 4px 25px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; }
             .sac-modal-header { padding: 15px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; }
-            .sac-modal-title { font-size: 18px; font-weight: 600; margin: 0; color: #333; }
-            .sac-modal-close { cursor: pointer; font-size: 24px; color: #999; line-height: 1; transition: color 0.2s; }
+            .sac-modal-title { font-size: 18px; font-weight: 600; margin: 0; }
+            .sac-modal-close { cursor: pointer; font-size: 24px; color: #999; }
             .sac-modal-close:hover { color: #d63031; }
             .sac-modal-body { padding: 20px; overflow-y: auto; font-size: 14px; line-height: 1.6; background: #fff; }
             .sac-modal-row { margin-bottom: 20px; }
-            .sac-modal-label { font-weight: bold; display: block; margin-bottom: 6px; color: #555; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
-            .sac-modal-content-box { background: #f9f9f9; padding: 12px; border-radius: 4px; border: 1px solid #e0e0e0; white-space: pre-wrap; word-wrap: break-word; font-family: monospace; max-height: 300px; overflow-y: auto; }
-            .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; background: #e5e5e5; font-size: 11px; font-weight: 600; }
-            @keyframes sacFadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+            .sac-modal-label { font-weight: bold; display: block; margin-bottom: 6px; color: #555; text-transform: uppercase; font-size: 11px; }
+            /* Style cho khung hiển thị nội dung */
+            .sac-modal-content-box { background: #f9f9f9; padding: 15px; border-radius: 4px; border: 1px solid #e0e0e0; min-height: 50px; }
+            /* Đảm bảo ảnh trong HTML render không bị tràn khung */
+            .sac-modal-content-box img { max-width: 100%; height: auto; border-radius: 4px; margin-top: 5px; }
+            .sac-modal-content-box ul { list-style: disc; margin-left: 20px; }
+            .sac-modal-content-box a { color: #0073aa; text-decoration: underline; }
         </style>
 
         <script>
             function openSacLogModal(id) {
-                // Get data from hidden elements
-                var time = document.getElementById('log-time-' + id).innerHTML;
-                var source = document.getElementById('log-source-' + id).innerHTML;
-                var provider = document.getElementById('log-provider-' + id).innerHTML;
-                var question = document.getElementById('log-question-' + id).innerHTML;
-                var answer = document.getElementById('log-answer-' + id).innerHTML;
+                // Lấy nội dung từ các thẻ ẩn (Textarea giữ nguyên định dạng HTML)
+                var time = document.getElementById('data-time-' + id).value;
+                var source = document.getElementById('data-source-' + id).value;
+                var provider = document.getElementById('data-provider-' + id).value;
+                var ip = document.getElementById('data-ip-' + id).value;
+                var question = document.getElementById('data-question-' + id).value;
+                
+                // QUAN TRỌNG: Lấy value của textarea để lấy raw HTML
+                var answer = document.getElementById('data-answer-' + id).value;
 
-                // Populate Modal
-                document.getElementById('sac-modal-meta').innerHTML = time + ' | ' + source + ' | ' + provider;
-                document.getElementById('sac-modal-question-box').innerHTML = question;
-                document.getElementById('sac-modal-answer-box').innerHTML = answer; // Keep HTML for formatting
+                // Điền dữ liệu vào Modal
+                document.getElementById('sac-modal-meta').innerHTML = time + ' | ' + source + ' | ' + provider + ' | IP: ' + ip;
+                
+                // Render text thường (câu hỏi)
+                document.getElementById('sac-modal-question-box').textContent = question;
+                
+                // Render HTML (câu trả lời) - Sử dụng innerHTML để trình duyệt dịch mã HTML
+                document.getElementById('sac-modal-answer-box').innerHTML = answer;
 
-                // Show
                 document.getElementById('sac-log-modal').style.display = 'flex';
             }
 
@@ -278,12 +293,10 @@ function soft_ai_chat_history_page() {
                 document.getElementById('sac-log-modal').style.display = 'none';
             }
             
-            // Close on click outside
+            // Đóng khi click ra ngoài
             window.onclick = function(event) {
                 var modal = document.getElementById('sac-log-modal');
-                if (event.target == modal) {
-                    modal.style.display = "none";
-                }
+                if (event.target == modal) modal.style.display = "none";
             }
         </script>
 
@@ -305,25 +318,24 @@ function soft_ai_chat_history_page() {
                     <td><span class="badge"><?php echo esc_html($log->source); ?></span></td>
                     <td><?php echo esc_html($log->provider); ?></td>
                     <td><?php echo esc_html(mb_strimwidth($log->question, 0, 50, '...')); ?></td>
-                    <td><?php echo esc_html(mb_strimwidth(strip_tags($log->answer), 0, 80, '...')); ?></td>
-                    
+                    <td><?php echo wp_strip_all_tags(mb_strimwidth($log->answer, 0, 80, '...')); ?></td>
                     <td>
                         <div style="display:flex; gap: 5px; align-items: center;">
                             <button type="button" class="button button-secondary button-small" onclick="openSacLogModal(<?php echo $log->id; ?>)">View</button>
-                            
                             <form method="post" style="display:inline-block; margin:0;">
                                 <?php wp_nonce_field('delete_log_' . $log->id); ?>
-                                <input type="hidden" name="delete_log" value="1">
-                                <input type="hidden" name="log_id" value="<?php echo $log->id; ?>">
-                                <button class="button button-link-delete" style="color: #a00;" onclick="return confirm('Delete this log?')">Del</button>
+                                <input type="hidden" name="delete_log" value="1"><input type="hidden" name="log_id" value="<?php echo $log->id; ?>">
+                                <button class="button button-link-delete" style="color: #a00;" onclick="return confirm('Delete?')">Del</button>
                             </form>
                         </div>
 
-                        <div id="log-time-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->time); ?></div>
-                        <div id="log-source-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->source); ?></div>
-                        <div id="log-provider-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->provider); ?></div>
-                        <div id="log-question-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->question); ?></div>
-                        <div id="log-answer-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->answer); ?></div>
+                        <textarea id="data-time-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->time); ?></textarea>
+                        <textarea id="data-source-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->source); ?></textarea>
+                        <textarea id="data-provider-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->provider); ?></textarea>
+                        <textarea id="data-ip-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->user_ip); ?></textarea>
+                        <textarea id="data-question-<?php echo $log->id; ?>" style="display:none"><?php echo esc_textarea($log->question); ?></textarea>
+                        
+                        <textarea id="data-answer-<?php echo $log->id; ?>" style="display:none"><?php echo esc_textarea($log->answer); ?></textarea>
                     </td>
                 </tr>
                 <?php endforeach; else: echo '<tr><td colspan="6">No history found.</td></tr>'; endif; ?>
@@ -335,17 +347,17 @@ function soft_ai_chat_history_page() {
         <div id="sac-log-modal" class="sac-modal-overlay">
             <div class="sac-modal-box">
                 <div class="sac-modal-header">
-                    <h3 class="sac-modal-title">Log Details <span id="sac-modal-meta" style="font-weight:normal; font-size:12px; color:#666; margin-left:10px;"></span></h3>
+                    <h3 class="sac-modal-title">Chi tiết Chat <span id="sac-modal-meta" style="font-weight:normal; font-size:12px; color:#666; margin-left:10px;"></span></h3>
                     <div class="sac-modal-close" onclick="closeSacLogModal()">×</div>
                 </div>
                 <div class="sac-modal-body">
                     <div class="sac-modal-row">
-                        <span class="sac-modal-label">User Question:</span>
-                        <div class="sac-modal-content-box" id="sac-modal-question-box"></div>
+                        <span class="sac-modal-label">Câu hỏi khách hàng:</span>
+                        <div class="sac-modal-content-box" id="sac-modal-question-box" style="white-space: pre-wrap;"></div>
                     </div>
                     <div class="sac-modal-row">
-                        <span class="sac-modal-label">AI Answer:</span>
-                        <div class="sac-modal-content-box" id="sac-modal-answer-box" style="background:#fff; border-color:#ccc; min-height:100px;"></div>
+                        <span class="sac-modal-label">AI Trả lời (Render HTML):</span>
+                        <div class="sac-modal-content-box" id="sac-modal-answer-box"></div>
                     </div>
                 </div>
             </div>
