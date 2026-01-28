@@ -3,7 +3,7 @@
  * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment & Social & Live Chat
  * Plugin URI:  https://soft.io.vn/soft-ai-chat
  * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + VietQR/PayPal + Facebook/Zalo + Live Chat (Human Handover).
- * Version:     3.0.0
+ * Version:     3.1.0
  * Author:      Tung Pham
  * License:     GPL-2.0+
  * Text Domain: soft-ai-chat
@@ -207,7 +207,7 @@ function soft_ai_chat_options_page() {
 }
 
 // ---------------------------------------------------------
-// 1.5. LIVE CHAT PAGE (NEW)
+// 1.5. LIVE CHAT PAGE
 // ---------------------------------------------------------
 
 function soft_ai_live_chat_page() {
@@ -279,6 +279,7 @@ function soft_ai_live_chat_page() {
                 var html = '';
                 response.data.forEach(function(msg) {
                     var align = msg.is_admin ? 'text-align:right;' : 'text-align:left;';
+                    // Highlight Admin (Self)
                     var bg = msg.is_admin ? 'background:#0073aa; color:white;' : 'background:#e5e5e5; color:#333;';
                     html += '<div style="margin-bottom: 10px; ' + align + '">';
                     html += '<div style="display:inline-block; padding: 8px 12px; border-radius: 15px; max-width: 70%; ' + bg + '">' + msg.content + '</div>';
@@ -287,8 +288,6 @@ function soft_ai_live_chat_page() {
                 });
                 var container = document.getElementById('sac-admin-messages');
                 container.innerHTML = html;
-                // Auto scroll bottom ONLY if near bottom or first load to avoid annoying jumps
-                // Simplified: Just scroll bottom for now
                 container.scrollTop = container.scrollHeight;
             }
         });
@@ -297,8 +296,7 @@ function soft_ai_live_chat_page() {
     function sendAdminReply() {
         var txt = jQuery('#sac-admin-input').val().trim();
         if(!txt || !currentChatIp) return;
-        
-        jQuery('#sac-admin-input').val(''); // Clear immediately
+        jQuery('#sac-admin-input').val(''); 
         
         jQuery.post(ajaxurl, { 
             action: 'sac_send_reply', 
@@ -309,10 +307,9 @@ function soft_ai_live_chat_page() {
         });
     }
 
-    // Init
     jQuery(document).ready(function(){
         loadLiveSessions();
-        setInterval(loadLiveSessions, 10000); // Poll session list every 10s
+        setInterval(loadLiveSessions, 10000); 
     });
     </script>
     <?php
@@ -365,7 +362,7 @@ function soft_ai_ajax_get_messages() {
     foreach($logs as $log) {
         $is_admin = ($log->provider === 'live_admin');
         $content = $is_admin ? $log->answer : $log->question;
-        // Skip AI internal logs if needed, but showing all context is better
+        
         if ($log->provider == 'live_user') {
              $content = $log->question;
              $is_admin = false;
@@ -373,8 +370,7 @@ function soft_ai_ajax_get_messages() {
              $content = $log->answer;
              $is_admin = true;
         } elseif (!empty($log->answer) && !empty($log->question)) {
-             // Normal AI Log: Show Q & A as separate blocks? 
-             // Simplify: Just show Q for user, A for "System"
+             // Normal AI Log
              $data[] = ['content' => $log->question, 'is_admin' => false, 'time' => date('H:i', strtotime($log->time))];
              $data[] = ['content' => $log->answer, 'is_admin' => true, 'time' => date('H:i', strtotime($log->time))];
              continue;
@@ -401,8 +397,8 @@ function soft_ai_ajax_send_reply() {
         'user_ip' => $ip,
         'provider' => 'live_admin', // Marker for admin reply
         'model' => 'human',
-        'question' => '', // Empty for admin reply
-        'answer' => $msg, // Admin msg goes here
+        'question' => '', 
+        'answer' => $msg, 
         'source' => 'widget',
         'is_read' => 1
     ]);
@@ -412,7 +408,7 @@ function soft_ai_ajax_send_reply() {
 
 
 // ---------------------------------------------------------
-// 1.7. HISTORY PAGE (EXISTING)
+// 1.7. HISTORY PAGE (UPDATED HIGHLIGHT)
 // ---------------------------------------------------------
 
 function soft_ai_chat_history_page() {
@@ -461,6 +457,9 @@ function soft_ai_chat_history_page() {
             .sac-modal-content-box img { max-width: 100%; height: auto; border-radius: 4px; margin-top: 5px; }
             .sac-modal-content-box ul { list-style: disc; margin-left: 20px; }
             .sac-modal-content-box a { color: #0073aa; text-decoration: underline; }
+            
+            /* Highlighting Admin Rows */
+            tr.sac-row-admin { background-color: #e6f7ff !important; }
         </style>
 
         <script>
@@ -493,8 +492,11 @@ function soft_ai_chat_history_page() {
                 </tr>
             </thead>
             <tbody>
-                <?php if ($logs): foreach ($logs as $log): ?>
-                <tr>
+                <?php if ($logs): foreach ($logs as $log): 
+                    // Highlight Admin Rows
+                    $row_class = ($log->provider === 'live_admin') ? 'sac-row-admin' : '';
+                ?>
+                <tr class="<?php echo $row_class; ?>">
                     <td><?php echo esc_html($log->time); ?></td>
                     <td><span class="badge"><?php echo esc_html($log->source); ?></span></td>
                     <td><?php echo esc_html($log->provider); ?></td>
@@ -627,7 +629,7 @@ class Soft_AI_Context {
 }
 
 // ---------------------------------------------------------
-// 3. CORE LOGIC (HYBRID: RAG + ORDERING + PAYMENTS + LIVE CHAT)
+// 3. CORE LOGIC
 // ---------------------------------------------------------
 
 function soft_ai_clean_content($content) {
@@ -1238,7 +1240,6 @@ add_action('rest_api_init', function () {
         'callback' => 'soft_ai_chat_handle_widget_request',
         'permission_callback' => '__return_true',
     ]);
-    // NEW: Poll endpoint for frontend
     register_rest_route('soft-ai-chat/v1', '/poll', [
         'methods' => 'POST',
         'callback' => 'soft_ai_chat_poll_messages',
@@ -1286,16 +1287,9 @@ function soft_ai_chat_poll_messages($request) {
     // Client polls for new admin messages
     $ip = $_SERVER['REMOTE_ADDR'];
     $table = $wpdb->prefix . 'soft_ai_chat_logs';
-    
-    // Check if there are any unread messages from admin
-    $msgs = $wpdb->get_results($wpdb->prepare("SELECT * FROM $table WHERE user_ip = %s AND provider = 'live_admin' AND is_read = 1 AND time > NOW() - INTERVAL 1 MINUTE ORDER BY time ASC", $ip));
-    
-    // We actually need a way to track "sent to frontend" vs "seen by frontend".
-    // For simplicity in this single file, we will fetch last 5 messages and frontend will deduplicate.
-    // Or better: fetch messages created after a timestamp sent by client.
-    
     $last_id = (int) ($request->get_json_params()['last_id'] ?? 0);
     
+    // Fetch only admin replies newer than last_id
     $new_msgs = $wpdb->get_results($wpdb->prepare("SELECT id, answer, time FROM $table WHERE user_ip = %s AND provider = 'live_admin' AND id > %d ORDER BY time ASC", $ip, $last_id));
 
     $data = [];
@@ -1370,7 +1364,7 @@ function soft_ai_chat_webhook_zalo($request) {
 }
 
 // ---------------------------------------------------------
-// 6. FRONTEND WIDGETS
+// 6. FRONTEND WIDGETS (UPDATED HIGHLIGHT)
 // ---------------------------------------------------------
 
 add_action('wp_footer', 'soft_ai_chat_inject_widget');
@@ -1442,11 +1436,26 @@ function soft_ai_chat_inject_widget() {
         .sac-close:hover { opacity: 1; }
         #sac-messages { flex: 1; padding: 15px; overflow-y: auto; background: #f8f9fa; display: flex; flex-direction: column; gap: 12px; font-size: 14px; }
         .sac-msg { padding: 10px 14px; border-radius: 12px; line-height: 1.5; max-width: 85%; word-wrap: break-word; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        
         .sac-msg.user { align-self: flex-end; background: #222; color: white; border-bottom-right-radius: 2px; }
+        
+        /* Bot Message Style */
         .sac-msg.bot { align-self: flex-start; background: #fff; border: 1px solid #e5e5e5; color: #333; border-bottom-left-radius: 2px; }
         .sac-msg.bot p { margin: 0 0 8px 0; } .sac-msg.bot p:last-child { margin: 0; }
         .sac-msg.bot img { max-width: 100%; border-radius: 8px; margin-top: 5px; }
         .sac-msg.bot strong { color: <?php echo esc_attr($color); ?>; }
+
+        /* Admin Highlight Style */
+        .sac-msg.admin { 
+            align-self: flex-start; 
+            background: #e6f7ff; 
+            border: 1px solid #91d5ff; 
+            color: #0050b3; 
+            border-bottom-left-radius: 2px; 
+            position: relative;
+            padding-top: 20px; /* Space for label */
+        }
+
         .sac-input-area { padding: 12px; border-top: 1px solid #eee; background: white; display: flex; gap: 8px; }
         #sac-input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 20px; outline: none; transition: border 0.2s; }
         #sac-input:focus { border-color: <?php echo esc_attr($color); ?>; }
@@ -1506,7 +1515,8 @@ function soft_ai_chat_inject_widget() {
                         const msgs = document.getElementById('sac-messages');
                         data.messages.forEach(m => {
                             lastMsgId = Math.max(lastMsgId, parseInt(m.id));
-                            msgs.innerHTML += `<div class="sac-msg bot">${marked.parse(m.text)}</div>`;
+                            // Use 'admin' class for highlighted messages
+                            msgs.innerHTML += `<div class="sac-msg admin">${marked.parse(m.text)}</div>`;
                         });
                         msgs.scrollTop = msgs.scrollHeight;
                     }
@@ -1543,7 +1553,7 @@ function soft_ai_chat_inject_widget() {
                 if (data.answer) {
                     msgs.innerHTML += `<div class="sac-msg bot">${marked.parse(data.answer)}</div>`;
                 } else if(data.live_mode) {
-                    // Do nothing, just sent. Maybe add a "Seen" indicator later.
+                    // Do nothing, just sent. 
                 } else {
                     msgs.innerHTML += `<div class="sac-msg bot" style="color:red">Lỗi: ${data.message || 'Unknown'}</div>`;
                 }
