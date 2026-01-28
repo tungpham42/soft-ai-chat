@@ -3,7 +3,7 @@
  * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment & Social & Live Chat
  * Plugin URI:  https://soft.io.vn/soft-ai-chat
  * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + VietQR/PayPal + Facebook/Zalo + Live Chat (Human Handover).
- * Version:     3.1.0
+ * Version:     3.2.0
  * Author:      Tung Pham
  * License:     GPL-2.0+
  * Text Domain: soft-ai-chat
@@ -207,12 +207,24 @@ function soft_ai_chat_options_page() {
 }
 
 // ---------------------------------------------------------
-// 1.5. LIVE CHAT PAGE
+// 1.5. LIVE CHAT PAGE (UPDATED WITH TOGGLE)
 // ---------------------------------------------------------
 
 function soft_ai_live_chat_page() {
     if (!current_user_can('manage_options')) return;
     ?>
+    <style>
+        /* Toggle Switch CSS */
+        .sac-switch { position: relative; display: inline-block; width: 50px; height: 24px; vertical-align: middle; margin-left: 10px; }
+        .sac-switch input { opacity: 0; width: 0; height: 0; }
+        .sac-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; -webkit-transition: .4s; transition: .4s; border-radius: 24px; }
+        .sac-slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; -webkit-transition: .4s; transition: .4s; border-radius: 50%; }
+        input:checked + .sac-slider { background-color: #0073aa; }
+        input:focus + .sac-slider { box-shadow: 0 0 1px #0073aa; }
+        input:checked + .sac-slider:before { -webkit-transform: translateX(26px); -ms-transform: translateX(26px); transform: translateX(26px); }
+        .sac-mode-label { font-size: 13px; font-weight: normal; margin-left: 5px; color: #555; }
+    </style>
+
     <div class="wrap" style="height: calc(100vh - 100px); display: flex; flex-direction: column;">
         <h1 style="margin-bottom: 20px;">🔴 Live Chat (Human Support)</h1>
         
@@ -225,8 +237,17 @@ function soft_ai_live_chat_page() {
             </div>
 
             <div style="flex: 1; display: flex; flex-direction: column; background: #fff; border: 1px solid #ccd0d4; position: relative;">
-                <div style="padding: 10px 20px; border-bottom: 1px solid #eee; background: #f0f0f1; font-weight: bold; display: flex; justify-content: space-between;">
-                    <span id="sac-current-user-title">Select a user to chat</span>
+                <div style="padding: 10px 20px; border-bottom: 1px solid #eee; background: #f0f0f1; font-weight: bold; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span id="sac-current-user-title">Select a user to chat</span>
+                        <span id="sac-mode-control" style="display:none; margin-left: 20px; border-left: 1px solid #ccc; padding-left: 15px;">
+                            <label class="sac-switch">
+                                <input type="checkbox" id="sac-mode-toggle" onchange="toggleAiMode()">
+                                <span class="sac-slider"></span>
+                            </label>
+                            <span class="sac-mode-label" id="sac-mode-text">AI Auto-Bot</span>
+                        </span>
+                    </div>
                     <button class="button button-small" onclick="loadLiveSessions()">Refresh Users</button>
                 </div>
                 
@@ -265,8 +286,10 @@ function soft_ai_live_chat_page() {
     function openAdminChat(ip) {
         currentChatIp = ip;
         jQuery('#sac-current-user-title').text('Chatting with: ' + ip);
+        jQuery('#sac-mode-control').show(); // Show toggle
+        
         loadLiveMessages();
-        loadLiveSessions(); // Refresh read status
+        loadLiveSessions(); 
         
         if(adminPollInterval) clearInterval(adminPollInterval);
         adminPollInterval = setInterval(loadLiveMessages, 3000);
@@ -276,10 +299,10 @@ function soft_ai_live_chat_page() {
         if(!currentChatIp) return;
         jQuery.get(ajaxurl, { action: 'sac_get_messages', ip: currentChatIp }, function(response) {
             if(response.success) {
+                // Update Messages
                 var html = '';
-                response.data.forEach(function(msg) {
+                response.data.messages.forEach(function(msg) {
                     var align = msg.is_admin ? 'text-align:right;' : 'text-align:left;';
-                    // Highlight Admin (Self)
                     var bg = msg.is_admin ? 'background:#0073aa; color:white;' : 'background:#e5e5e5; color:#333;';
                     html += '<div style="margin-bottom: 10px; ' + align + '">';
                     html += '<div style="display:inline-block; padding: 8px 12px; border-radius: 15px; max-width: 70%; ' + bg + '">' + msg.content + '</div>';
@@ -287,9 +310,42 @@ function soft_ai_live_chat_page() {
                     html += '</div>';
                 });
                 var container = document.getElementById('sac-admin-messages');
+                // Only update if content changed prevents flicker, but for simplicity we replace
+                // Ideally check last ID.
                 container.innerHTML = html;
-                container.scrollTop = container.scrollHeight;
+                
+                // Update Toggle State
+                var isLive = response.data.is_live; // true = Human Mode, false = AI Mode
+                var toggle = document.getElementById('sac-mode-toggle');
+                var label = document.getElementById('sac-mode-text');
+                
+                // We only update the visual switch if the user isn't interacting with it currently
+                // But for basic version, just update it.
+                toggle.checked = !isLive; // Checked = AI ON, Unchecked = AI OFF (Live)
+                
+                // Invert Logic for UI: Let's make Check = Live Mode?
+                // Actually: Standard is Toggle ON = Feature Active.
+                // Let's say Toggle Checked = Live Mode Active.
+                toggle.checked = isLive;
+                label.innerText = isLive ? "🔴 Live Chat Mode (AI OFF)" : "🤖 AI Auto-Bot (AI ON)";
+                label.style.color = isLive ? "#d63031" : "#555";
+                label.style.fontWeight = isLive ? "bold" : "normal";
             }
+        });
+    }
+
+    function toggleAiMode() {
+        if(!currentChatIp) return;
+        var isChecked = document.getElementById('sac-mode-toggle').checked;
+        // isChecked true => Enable Live Mode
+        var newMode = isChecked ? 'live' : 'ai';
+        
+        jQuery.post(ajaxurl, {
+            action: 'sac_toggle_mode',
+            ip: currentChatIp,
+            mode: newMode
+        }, function(response) {
+            loadLiveMessages(); // Refresh UI to confirm
         });
     }
 
@@ -322,6 +378,7 @@ function soft_ai_live_chat_page() {
 add_action('wp_ajax_sac_get_sessions', 'soft_ai_ajax_get_sessions');
 add_action('wp_ajax_sac_get_messages', 'soft_ai_ajax_get_messages');
 add_action('wp_ajax_sac_send_reply', 'soft_ai_ajax_send_reply');
+add_action('wp_ajax_sac_toggle_mode', 'soft_ai_ajax_toggle_mode');
 
 function soft_ai_ajax_get_sessions() {
     global $wpdb;
@@ -356,9 +413,13 @@ function soft_ai_ajax_get_messages() {
     // Mark as read
     $wpdb->update($table, ['is_read' => 1], ['user_ip' => $ip]);
 
+    // Check Current Mode
+    $context = new Soft_AI_Context($ip, 'widget'); // Using IP as ID for admin context
+    $is_live = $context->get('live_chat_mode');
+
     $logs = $wpdb->get_results($wpdb->prepare("SELECT * FROM $table WHERE user_ip = %s ORDER BY time ASC LIMIT 100", $ip));
     
-    $data = [];
+    $messages = [];
     foreach($logs as $log) {
         $is_admin = ($log->provider === 'live_admin');
         $content = $is_admin ? $log->answer : $log->question;
@@ -371,18 +432,37 @@ function soft_ai_ajax_get_messages() {
              $is_admin = true;
         } elseif (!empty($log->answer) && !empty($log->question)) {
              // Normal AI Log
-             $data[] = ['content' => $log->question, 'is_admin' => false, 'time' => date('H:i', strtotime($log->time))];
-             $data[] = ['content' => $log->answer, 'is_admin' => true, 'time' => date('H:i', strtotime($log->time))];
+             $messages[] = ['content' => $log->question, 'is_admin' => false, 'time' => date('H:i', strtotime($log->time))];
+             $messages[] = ['content' => $log->answer, 'is_admin' => true, 'time' => date('H:i', strtotime($log->time))];
              continue;
         }
 
-        $data[] = [
+        $messages[] = [
             'content' => $content,
             'is_admin' => $is_admin,
             'time' => date('H:i', strtotime($log->time))
         ];
     }
-    wp_send_json_success($data);
+    
+    wp_send_json_success([
+        'messages' => $messages,
+        'is_live' => (bool)$is_live
+    ]);
+}
+
+function soft_ai_ajax_toggle_mode() {
+    $ip = sanitize_text_field($_POST['ip']);
+    $mode = sanitize_text_field($_POST['mode']); // 'live' or 'ai'
+    
+    if (!$ip) wp_send_json_error();
+
+    $context = new Soft_AI_Context($ip, 'widget');
+    if ($mode === 'live') {
+        $context->set('live_chat_mode', true);
+    } else {
+        $context->set('live_chat_mode', false);
+    }
+    wp_send_json_success();
 }
 
 function soft_ai_ajax_send_reply() {
@@ -402,6 +482,10 @@ function soft_ai_ajax_send_reply() {
         'source' => 'widget',
         'is_read' => 1
     ]);
+    
+    // Auto enable Live Mode if admin replies (optional, but good UX)
+    $context = new Soft_AI_Context($ip, 'widget');
+    $context->set('live_chat_mode', true);
     
     wp_send_json_success();
 }
