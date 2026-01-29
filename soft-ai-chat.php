@@ -482,7 +482,7 @@ function soft_ai_live_chat_page() {
                 container.innerHTML = html;
                 
                 // Auto Suggest Check
-                checkAutoSuggestions(lastUserMsg);
+                // checkAutoSuggestions(lastUserMsg);
 
                 var isLive = response.data.is_live; 
                 var toggle = document.getElementById('sac-mode-toggle');
@@ -496,8 +496,15 @@ function soft_ai_live_chat_page() {
         });
     }
 
+    // 1. Lắng nghe sự kiện gõ phím của Admin
+    jQuery('#sac-admin-input').on('keyup', function() {
+        var currentInput = jQuery(this).val();
+        checkAutoSuggestions(currentInput); // Kiểm tra gợi ý dựa trên nội dung đang gõ
+    });
+
     function checkAutoSuggestions(msg) {
         var container = document.getElementById('sac-suggestions');
+        // Nếu ô nhập liệu trống hoặc không có danh sách câu mẫu thì ẩn gợi ý
         if (!msg || allCannedMsgs.length === 0) {
             container.style.display = 'none';
             return;
@@ -506,7 +513,9 @@ function soft_ai_live_chat_page() {
         var found = [];
         var lowerMsg = msg.toLowerCase();
 
+        // Duyệt qua tất cả câu mẫu
         allCannedMsgs.forEach(function(item) {
+            // Nếu nội dung Admin đang gõ có chứa shortcut của câu mẫu
             if (lowerMsg.includes(item.shortcut.toLowerCase())) {
                 found.push(item);
             }
@@ -515,13 +524,18 @@ function soft_ai_live_chat_page() {
         if (found.length > 0) {
             var html = '';
             found.forEach(function(item) {
+                // Xử lý chuỗi để tránh lỗi khi chèn vào thuộc tính onclick
                 var safeContent = item.content.replace(/"/g, '&quot;').replace(/'/g, "\\'");
-                html += `<div class="sac-suggest-chip" onclick="insertCanned('${safeContent}')">
-                    <span class="sac-suggest-label">💡 Gợi ý: [${item.shortcut}]</span> ${item.content}
+                
+                // Hiển thị toàn bộ nội dung câu mẫu
+                html += `<div class="sac-suggest-chip" onclick="insertCanned('${safeContent}')" style="max-width: 400px; white-space: normal; height: auto; padding: 8px 12px; border-radius: 8px;">
+                    <span class="sac-suggest-label" style="display:block;">💡 Khớp từ tắt [${item.shortcut}]:</span>
+                    <div style="font-size: 13px; line-height: 1.4;">${item.content}</div>
                 </div>`;
             });
             container.innerHTML = html;
-            container.style.display = 'block';
+            container.style.display = 'flex'; // Sử dụng flex để các chip trông gọn hơn
+            container.style.flexWrap = 'wrap';
         } else {
             container.style.display = 'none';
         }
