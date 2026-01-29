@@ -3,7 +3,7 @@
  * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment & Social & Live Chat & Coupons & Canned Responses
  * Plugin URI:  https://soft.io.vn/soft-ai-chat
  * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + Coupons + VietQR/PayPal + Facebook/Zalo + Live Chat + Canned Responses + Auto Suggestions.
- * Version:     3.5.2
+ * Version:     3.5.3
  * Author:      Tung Pham
  * License:     GPL-2.0+
  * Text Domain: soft-ai-chat
@@ -517,7 +517,7 @@ function soft_ai_live_chat_page() {
             found.forEach(function(item) {
                 var safeContent = item.content.replace(/"/g, '&quot;').replace(/'/g, "\\'");
                 html += `<div class="sac-suggest-chip" onclick="insertCanned('${safeContent}')">
-                    <span class="sac-suggest-label">💡 Gợi ý: [${item.shortcut}]</span> Click để dùng
+                    <span class="sac-suggest-label">💡 Gợi ý: [${item.shortcut}]</span> ${item.content}
                 </div>`;
             });
             container.innerHTML = html;
@@ -1100,6 +1100,7 @@ function soft_ai_clean_text_for_social($content) {
  * Main AI Engine + State Machine
  */
 function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '') {
+    global $wpdb;
     if (empty($user_id)) $user_id = get_current_user_id() ?: md5($_SERVER['REMOTE_ADDR']);
     $context = new Soft_AI_Context($user_id, $platform);
     
@@ -1131,6 +1132,24 @@ function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '')
         // But for UX, we might want to return nothing to widget, just "sent".
         return "[WAIT_FOR_HUMAN]"; 
     }
+
+    // --- 0.5. CHECK CANNED RESPONSES (NEW FEATURE) ---
+    // Kiểm tra xem câu hỏi có khớp với Shortcut nào không (Exact match hoặc Contain)
+    $table_canned = $wpdb->prefix . 'soft_ai_canned_msgs';
+    $canned_match = $wpdb->get_row($wpdb->prepare(
+        "SELECT content FROM $table_canned WHERE LOWER(shortcut) = %s OR %s LIKE CONCAT('%%', LOWER(shortcut), '%%') LIMIT 1",
+        $clean_q, $clean_q
+    ));
+
+    if ($canned_match) {
+        $msg = $canned_match->content;
+        // Nếu là Social, dọn dẹp markdown
+        if ($platform === 'facebook' || $platform === 'zalo') {
+            return soft_ai_clean_text_for_social($msg);
+        }
+        return $msg;
+    }
+
     // ----------------------------------
 
     // 1. Flow Interruption (Huỷ bỏ)
