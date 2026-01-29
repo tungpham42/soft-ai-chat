@@ -528,7 +528,7 @@ function soft_ai_ajax_send_reply() {
 
 
 // ---------------------------------------------------------
-// 1.7. HISTORY PAGE (UPDATED HIGHLIGHT)
+// 1.7. HISTORY PAGE (UPDATED HIGHLIGHT & PAGINATION)
 // ---------------------------------------------------------
 
 function soft_ai_chat_history_page() {
@@ -580,6 +580,29 @@ function soft_ai_chat_history_page() {
             
             /* Highlighting Admin Rows */
             tr.sac-row-admin { background-color: #e6f7ff !important; }
+
+            /* Modern Pagination Styling */
+            .sac-pagination-wrapper { margin-top: 30px; display: flex; justify-content: center; align-items: center; width: 100%; }
+            .sac-pagination .page-numbers {
+                display: inline-flex; align-items: center; justify-content: center;
+                min-width: 34px; height: 34px; padding: 0 10px; margin: 0 3px;
+                border-radius: 6px; 
+                background: #fff; border: 1px solid #ddd;
+                color: #444; text-decoration: none; 
+                font-weight: 600; font-size: 13px;
+                transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+                box-shadow: 0 2px 2px rgba(0,0,0,0.02);
+            }
+            .sac-pagination .page-numbers:hover:not(.current):not(.dots) {
+                border-color: #0073aa; color: #0073aa; background: #f0f7fd;
+                transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,115,170,0.15);
+            }
+            .sac-pagination .page-numbers.current {
+                background: #0073aa; color: #fff; border-color: #0073aa;
+                box-shadow: 0 2px 5px rgba(0,115,170,0.4);
+            }
+            .sac-pagination .dots { border: none; background: transparent; box-shadow: none; color: #999; }
+            .sac-pagination .next, .sac-pagination .prev { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif; font-weight: bold; }
         </style>
 
         <script>
@@ -643,7 +666,22 @@ function soft_ai_chat_history_page() {
             </tbody>
         </table>
         
-        <?php if ($total_pages > 1): echo paginate_links(['base' => add_query_arg('paged', '%#%'), 'total' => $total_pages, 'current' => $paged]); endif; ?>
+        <?php if ($total_pages > 1): ?>
+        <div class="sac-pagination-wrapper">
+            <div class="sac-pagination">
+                <?php 
+                echo paginate_links([
+                    'base' => add_query_arg('paged', '%#%'),
+                    'total' => $total_pages,
+                    'current' => $paged,
+                    'prev_text' => '<span class="dashicons dashicons-arrow-left-alt2" style="margin-top:2px;"></span>',
+                    'next_text' => '<span class="dashicons dashicons-arrow-right-alt2" style="margin-top:2px;"></span>',
+                    'mid_size' => 2
+                ]); 
+                ?>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <div id="sac-log-modal" class="sac-modal-overlay">
             <div class="sac-modal-box">
