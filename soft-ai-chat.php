@@ -1,9 +1,9 @@
 <?php
 /**
- * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment & Social & Live Chat & Coupons
+ * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment & Social & Live Chat & Coupons & Canned Responses
  * Plugin URI:  https://soft.io.vn/soft-ai-chat
- * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + Coupons + VietQR/PayPal + Facebook/Zalo + Live Chat (Human Handover).
- * Version:     3.4.0
+ * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + Coupons + VietQR/PayPal + Facebook/Zalo + Live Chat + Canned Responses.
+ * Version:     3.5.0
  * Author:      Tung Pham
  * License:     GPL-2.0+
  * Text Domain: soft-ai-chat
@@ -14,17 +14,19 @@ if (!defined('ABSPATH')) {
 }
 
 // ---------------------------------------------------------
-// 0. ACTIVATION: CREATE DATABASE TABLE
+// 0. ACTIVATION: CREATE DATABASE TABLES
 // ---------------------------------------------------------
 
 register_activation_hook(__FILE__, 'soft_ai_chat_activate');
 
 function soft_ai_chat_activate() {
     global $wpdb;
-    $table_name = $wpdb->prefix . 'soft_ai_chat_logs';
     $charset_collate = $wpdb->get_charset_collate();
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
 
-    $sql = "CREATE TABLE $table_name (
+    // Table 1: Chat Logs
+    $table_logs = $wpdb->prefix . 'soft_ai_chat_logs';
+    $sql_logs = "CREATE TABLE $table_logs (
         id mediumint(9) NOT NULL AUTO_INCREMENT,
         time datetime DEFAULT '0000-00-00 00:00:00' NOT NULL,
         user_ip varchar(100) DEFAULT '' NOT NULL,
@@ -38,9 +40,18 @@ function soft_ai_chat_activate() {
         KEY time (time),
         KEY user_ip (user_ip)
     ) $charset_collate;";
+    dbDelta($sql_logs);
 
-    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-    dbDelta($sql);
+    // Table 2: Canned Messages (NEW)
+    $table_canned = $wpdb->prefix . 'soft_ai_canned_msgs';
+    $sql_canned = "CREATE TABLE $table_canned (
+        id mediumint(9) NOT NULL AUTO_INCREMENT,
+        shortcut varchar(50) NOT NULL,
+        content text NOT NULL,
+        created_at datetime DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id)
+    ) $charset_collate;";
+    dbDelta($sql_canned);
 }
 
 // ---------------------------------------------------------
@@ -54,6 +65,7 @@ add_action('admin_enqueue_scripts', 'soft_ai_chat_admin_enqueue');
 function soft_ai_chat_add_admin_menu() {
     add_menu_page('Soft AI Chat', 'Soft AI Chat', 'manage_options', 'soft-ai-chat', 'soft_ai_chat_options_page', 'dashicons-format-chat', 80);
     add_submenu_page('soft-ai-chat', 'Live Chat (Support)', '🔴 Live Chat', 'manage_options', 'soft-ai-live-chat', 'soft_ai_live_chat_page');
+    add_submenu_page('soft-ai-chat', 'Canned Responses', 'Câu trả lời mẫu', 'manage_options', 'soft-ai-canned-responses', 'soft_ai_canned_responses_page');
     add_submenu_page('soft-ai-chat', 'Settings', 'Settings', 'manage_options', 'soft-ai-chat', 'soft_ai_chat_options_page');
     add_submenu_page('soft-ai-chat', 'Chat History', 'Chat Logs', 'manage_options', 'soft-ai-chat-history', 'soft_ai_chat_history_page');
 }
@@ -207,7 +219,104 @@ function soft_ai_chat_options_page() {
 }
 
 // ---------------------------------------------------------
-// 1.5. LIVE CHAT PAGE (UPDATED WITH DELETE)
+// 1.2. CANNED RESPONSES PAGE (CRUD)
+// ---------------------------------------------------------
+
+function soft_ai_canned_responses_page() {
+    if (!current_user_can('manage_options')) return;
+    global $wpdb;
+    $table = $wpdb->prefix . 'soft_ai_canned_msgs';
+
+    // HANDLE ADD/UPDATE
+    if (isset($_POST['sac_save_canned']) && check_admin_referer('sac_save_canned_nonce')) {
+        $shortcut = sanitize_text_field($_POST['shortcut']);
+        $content = sanitize_textarea_field($_POST['content']);
+        $edit_id = intval($_POST['edit_id']);
+
+        if ($shortcut && $content) {
+            if ($edit_id > 0) {
+                $wpdb->update($table, ['shortcut' => $shortcut, 'content' => $content], ['id' => $edit_id]);
+                echo '<div class="updated"><p>Updated successfully!</p></div>';
+            } else {
+                $wpdb->insert($table, ['shortcut' => $shortcut, 'content' => $content]);
+                echo '<div class="updated"><p>Added successfully!</p></div>';
+            }
+        }
+    }
+
+    // HANDLE DELETE
+    if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['id'])) {
+        $del_id = intval($_GET['id']);
+        $wpdb->delete($table, ['id' => $del_id]);
+        echo '<div class="updated"><p>Deleted.</p></div>';
+    }
+
+    // PREPARE EDIT DATA
+    $edit_data = null;
+    if (isset($_GET['action']) && $_GET['action'] == 'edit' && isset($_GET['id'])) {
+        $edit_data = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE id = %d", intval($_GET['id'])));
+    }
+
+    $responses = $wpdb->get_results("SELECT * FROM $table ORDER BY id DESC");
+    ?>
+    <div class="wrap">
+        <h1>Quản lý Câu trả lời mẫu (Canned Responses)</h1>
+        <p>Tạo các câu trả lời nhanh để sử dụng trong Live Chat.</p>
+
+        <div style="display:flex; gap: 20px;">
+            <div style="width: 350px; background:#fff; padding:20px; border:1px solid #ccc;">
+                <h3><?php echo $edit_data ? 'Sửa câu mẫu' : 'Thêm mới'; ?></h3>
+                <form method="post" action="<?php echo remove_query_arg(['action', 'id']); ?>">
+                    <?php wp_nonce_field('sac_save_canned_nonce'); ?>
+                    <input type="hidden" name="edit_id" value="<?php echo $edit_data ? $edit_data->id : 0; ?>">
+                    
+                    <p>
+                        <label><strong>Tên gợi nhớ (Shortcut):</strong></label><br>
+                        <input type="text" name="shortcut" value="<?php echo $edit_data ? esc_attr($edit_data->shortcut) : ''; ?>" style="width:100%;" required placeholder="Ví dụ: chào, giá, stk...">
+                    </p>
+                    <p>
+                        <label><strong>Nội dung tin nhắn:</strong></label><br>
+                        <textarea name="content" rows="6" style="width:100%;" required><?php echo $edit_data ? esc_textarea($edit_data->content) : ''; ?></textarea>
+                    </p>
+                    <p>
+                        <button type="submit" name="sac_save_canned" class="button button-primary">Lưu lại</button>
+                        <?php if($edit_data): ?>
+                            <a href="?page=soft-ai-canned-responses" class="button">Hủy</a>
+                        <?php endif; ?>
+                    </p>
+                </form>
+            </div>
+
+            <div style="flex:1;">
+                <table class="wp-list-table widefat fixed striped">
+                    <thead>
+                        <tr>
+                            <th width="150">Shortcut</th>
+                            <th>Nội dung</th>
+                            <th width="120">Hành động</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if($responses): foreach($responses as $r): ?>
+                        <tr>
+                            <td><strong><?php echo esc_html($r->shortcut); ?></strong></td>
+                            <td><?php echo nl2br(esc_html($r->content)); ?></td>
+                            <td>
+                                <a href="?page=soft-ai-canned-responses&action=edit&id=<?php echo $r->id; ?>" class="button button-small">Sửa</a>
+                                <a href="?page=soft-ai-canned-responses&action=delete&id=<?php echo $r->id; ?>" class="button button-small button-link-delete" onclick="return confirm('Xóa?')">Xóa</a>
+                            </td>
+                        </tr>
+                        <?php endforeach; else: echo '<tr><td colspan="3">Chưa có câu mẫu nào.</td></tr>'; endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <?php
+}
+
+// ---------------------------------------------------------
+// 1.5. LIVE CHAT PAGE (UPDATED WITH CANNED RESPONSES UI)
 // ---------------------------------------------------------
 
 function soft_ai_live_chat_page() {
@@ -223,6 +332,18 @@ function soft_ai_live_chat_page() {
         input:focus + .sac-slider { box-shadow: 0 0 1px #0073aa; }
         input:checked + .sac-slider:before { -webkit-transform: translateX(26px); -ms-transform: translateX(26px); transform: translateX(26px); }
         .sac-mode-label { font-size: 13px; font-weight: normal; margin-left: 5px; color: #555; }
+
+        /* Canned Responses UI */
+        #sac-canned-popup { 
+            display: none; position: absolute; bottom: 60px; left: 15px; width: 400px; 
+            background: white; border: 1px solid #ccc; box-shadow: 0 -5px 20px rgba(0,0,0,0.1); 
+            border-radius: 8px; z-index: 100; overflow: hidden;
+        }
+        #sac-canned-search { width: 100%; border: none; border-bottom: 1px solid #eee; padding: 10px; box-sizing: border-box; outline: none; }
+        #sac-canned-list { max-height: 250px; overflow-y: auto; }
+        .sac-canned-item { padding: 8px 12px; border-bottom: 1px solid #f9f9f9; cursor: pointer; font-size: 13px; }
+        .sac-canned-item:hover { background: #f0f7fd; color: #0073aa; }
+        .sac-canned-shortcut { font-weight: bold; color: #555; display: inline-block; width: 80px; }
     </style>
 
     <div class="wrap" style="height: auto; display: flex; flex-direction: column;">
@@ -258,7 +379,13 @@ function soft_ai_live_chat_page() {
                     <div style="text-align:center; color:#aaa; margin-top: 50px;">Select a user from the left to start chatting.</div>
                 </div>
 
-                <div style="padding: 15px; background: #fff; border-top: 1px solid #ddd; display: flex; gap: 10px;">
+                <div style="padding: 15px; background: #fff; border-top: 1px solid #ddd; display: flex; gap: 10px; position: relative;">
+                    <div id="sac-canned-popup">
+                        <input type="text" id="sac-canned-search" placeholder="🔍 Tìm câu mẫu (gõ từ khóa)..." onkeyup="filterCanned()">
+                        <div id="sac-canned-list">Fetching...</div>
+                    </div>
+
+                    <button class="button" onclick="toggleCanned()" title="Câu trả lời mẫu">⚡ Câu mẫu</button>
                     <input type="text" id="sac-admin-input" placeholder="Type your reply..." style="flex: 1;" onkeypress="if(event.key==='Enter') sendAdminReply()">
                     <button class="button button-primary" onclick="sendAdminReply()">Send</button>
                 </div>
@@ -269,6 +396,7 @@ function soft_ai_live_chat_page() {
     <script>
     var currentChatIp = null;
     var adminPollInterval = null;
+    var allCannedMsgs = [];
 
     function loadLiveSessions() {
         jQuery.get(ajaxurl, { action: 'sac_get_sessions' }, function(response) {
@@ -290,7 +418,7 @@ function soft_ai_live_chat_page() {
         currentChatIp = ip;
         jQuery('#sac-current-user-title').text('Chatting with: ' + ip);
         jQuery('#sac-mode-control').show(); 
-        jQuery('#sac-delete-btn').show(); // Show delete button
+        jQuery('#sac-delete-btn').show(); 
         
         loadLiveMessages();
         loadLiveSessions(); 
@@ -303,7 +431,6 @@ function soft_ai_live_chat_page() {
         if(!currentChatIp) return;
         jQuery.get(ajaxurl, { action: 'sac_get_messages', ip: currentChatIp }, function(response) {
             if(response.success) {
-                // Update Messages
                 var html = '';
                 response.data.messages.forEach(function(msg) {
                     var align = msg.is_admin ? 'text-align:right;' : 'text-align:left;';
@@ -332,26 +459,14 @@ function soft_ai_live_chat_page() {
         if(!currentChatIp) return;
         var isChecked = document.getElementById('sac-mode-toggle').checked;
         var newMode = isChecked ? 'live' : 'ai';
-        
-        jQuery.post(ajaxurl, {
-            action: 'sac_toggle_mode',
-            ip: currentChatIp,
-            mode: newMode
-        }, function(response) {
-            loadLiveMessages(); 
-        });
+        jQuery.post(ajaxurl, { action: 'sac_toggle_mode', ip: currentChatIp, mode: newMode }, function(response) { loadLiveMessages(); });
     }
 
     function deleteConversation() {
         if(!currentChatIp) return;
         if(!confirm('Are you sure you want to delete ALL history with ' + currentChatIp + '? This cannot be undone.')) return;
-
-        jQuery.post(ajaxurl, {
-            action: 'sac_delete_conversation',
-            ip: currentChatIp
-        }, function(response) {
+        jQuery.post(ajaxurl, { action: 'sac_delete_conversation', ip: currentChatIp }, function(response) {
             if(response.success) {
-                // Reset UI
                 currentChatIp = null;
                 jQuery('#sac-admin-messages').html('<div style="text-align:center; color:#aaa; margin-top: 50px;">Conversation deleted. Select another user.</div>');
                 jQuery('#sac-current-user-title').text('Select a user to chat');
@@ -359,9 +474,7 @@ function soft_ai_live_chat_page() {
                 jQuery('#sac-delete-btn').hide();
                 if(adminPollInterval) clearInterval(adminPollInterval);
                 loadLiveSessions();
-            } else {
-                alert('Error deleting conversation.');
-            }
+            } else { alert('Error deleting conversation.'); }
         });
     }
 
@@ -369,18 +482,66 @@ function soft_ai_live_chat_page() {
         var txt = jQuery('#sac-admin-input').val().trim();
         if(!txt || !currentChatIp) return;
         jQuery('#sac-admin-input').val(''); 
-        
-        jQuery.post(ajaxurl, { 
-            action: 'sac_send_reply', 
-            ip: currentChatIp, 
-            message: txt 
-        }, function(response) {
-            loadLiveMessages();
-        });
+        jQuery.post(ajaxurl, { action: 'sac_send_reply', ip: currentChatIp, message: txt }, function(response) { loadLiveMessages(); });
     }
 
+    // --- Canned Responses Logic ---
+    function toggleCanned() {
+        var p = document.getElementById('sac-canned-popup');
+        if(p.style.display === 'block') { p.style.display = 'none'; return; }
+        p.style.display = 'block';
+        document.getElementById('sac-canned-search').focus();
+        
+        if(allCannedMsgs.length === 0) {
+            jQuery.get(ajaxurl, { action: 'sac_get_canned_msgs' }, function(res) {
+                if(res.success) {
+                    allCannedMsgs = res.data;
+                    renderCannedList(allCannedMsgs);
+                }
+            });
+        } else {
+            renderCannedList(allCannedMsgs);
+        }
+    }
+
+    function renderCannedList(list) {
+        var html = '';
+        list.forEach(function(item) {
+            // Encode content to allow safe passing to function
+            var safeContent = item.content.replace(/"/g, '&quot;').replace(/'/g, "\\'");
+            html += `<div class="sac-canned-item" onclick="insertCanned('${safeContent}')">
+                <span class="sac-canned-shortcut">[${item.shortcut}]</span> ${item.content.substring(0, 40)}...
+            </div>`;
+        });
+        if(list.length === 0) html = '<div style="padding:10px;color:#999;">Không tìm thấy.</div>';
+        document.getElementById('sac-canned-list').innerHTML = html;
+    }
+
+    function filterCanned() {
+        var q = document.getElementById('sac-canned-search').value.toLowerCase();
+        var filtered = allCannedMsgs.filter(function(item) {
+            return item.shortcut.toLowerCase().includes(q) || item.content.toLowerCase().includes(q);
+        });
+        renderCannedList(filtered);
+    }
+
+    function insertCanned(text) {
+        // Decode simple entities if necessary, but here we just pass pure text
+        var decoded = text.replace(/&quot;/g, '"');
+        jQuery('#sac-admin-input').val(decoded);
+        document.getElementById('sac-canned-popup').style.display = 'none';
+        document.getElementById('sac-admin-input').focus();
+    }
+
+    // Close popup if clicking outside
+    jQuery(document).on('click', function(e) {
+        if (!jQuery(e.target).closest('#sac-canned-popup, button[onclick="toggleCanned()"]').length) {
+            jQuery('#sac-canned-popup').hide();
+        }
+    });
+
     jQuery(document).ready(function(){
-        jQuery('#sac-delete-btn').hide(); // Hide by default
+        jQuery('#sac-delete-btn').hide(); 
         loadLiveSessions();
         setInterval(loadLiveSessions, 10000); 
     });
@@ -389,7 +550,7 @@ function soft_ai_live_chat_page() {
 }
 
 // ---------------------------------------------------------
-// 1.6. ADMIN AJAX HANDLERS
+// 1.6. ADMIN AJAX HANDLERS (UPDATED)
 // ---------------------------------------------------------
 
 add_action('wp_ajax_sac_get_sessions', 'soft_ai_ajax_get_sessions');
@@ -397,12 +558,11 @@ add_action('wp_ajax_sac_get_messages', 'soft_ai_ajax_get_messages');
 add_action('wp_ajax_sac_send_reply', 'soft_ai_ajax_send_reply');
 add_action('wp_ajax_sac_toggle_mode', 'soft_ai_ajax_toggle_mode');
 add_action('wp_ajax_sac_delete_conversation', 'soft_ai_ajax_delete_conversation');
+add_action('wp_ajax_sac_get_canned_msgs', 'soft_ai_ajax_get_canned_msgs'); // NEW
 
 function soft_ai_ajax_get_sessions() {
     global $wpdb;
     $table = $wpdb->prefix . 'soft_ai_chat_logs';
-    
-    // Get distinct IPs from last 24h
     $results = $wpdb->get_results("
         SELECT user_ip as ip, MAX(time) as latest_time, 
         SUM(CASE WHEN is_read = 0 AND provider != 'live_admin' THEN 1 ELSE 0 END) as unread
@@ -411,14 +571,9 @@ function soft_ai_ajax_get_sessions() {
         GROUP BY user_ip 
         ORDER BY latest_time DESC
     ");
-    
     $data = [];
     foreach($results as $r) {
-        $data[] = [
-            'ip' => $r->ip,
-            'time' => date('H:i', strtotime($r->latest_time)),
-            'unread' => $r->unread
-        ];
+        $data[] = ['ip' => $r->ip, 'time' => date('H:i', strtotime($r->latest_time)), 'unread' => $r->unread];
     }
     wp_send_json_success($data);
 }
@@ -427,103 +582,65 @@ function soft_ai_ajax_get_messages() {
     global $wpdb;
     $ip = sanitize_text_field($_GET['ip']);
     $table = $wpdb->prefix . 'soft_ai_chat_logs';
-    
-    // Mark as read
     $wpdb->update($table, ['is_read' => 1], ['user_ip' => $ip]);
-
-    // Check Current Mode
-    $context = new Soft_AI_Context($ip, 'widget'); // Using IP as ID for admin context
+    $context = new Soft_AI_Context($ip, 'widget'); 
     $is_live = $context->get('live_chat_mode');
-
     $logs = $wpdb->get_results($wpdb->prepare("SELECT * FROM $table WHERE user_ip = %s ORDER BY time ASC LIMIT 100", $ip));
     
     $messages = [];
     foreach($logs as $log) {
         $is_admin = ($log->provider === 'live_admin');
         $content = $is_admin ? $log->answer : $log->question;
-        
-        if ($log->provider == 'live_user') {
-             $content = $log->question;
-             $is_admin = false;
-        } elseif ($log->provider == 'live_admin') {
-             $content = $log->answer;
-             $is_admin = true;
-        } elseif (!empty($log->answer) && !empty($log->question)) {
-             // Normal AI Log
+        if ($log->provider == 'live_user') { $content = $log->question; $is_admin = false; } 
+        elseif ($log->provider == 'live_admin') { $content = $log->answer; $is_admin = true; } 
+        elseif (!empty($log->answer) && !empty($log->question)) {
              $messages[] = ['content' => $log->question, 'is_admin' => false, 'time' => date('H:i', strtotime($log->time))];
              $messages[] = ['content' => $log->answer, 'is_admin' => true, 'time' => date('H:i', strtotime($log->time))];
              continue;
         }
-
-        $messages[] = [
-            'content' => $content,
-            'is_admin' => $is_admin,
-            'time' => date('H:i', strtotime($log->time))
-        ];
+        $messages[] = ['content' => $content, 'is_admin' => $is_admin, 'time' => date('H:i', strtotime($log->time))];
     }
-    
-    wp_send_json_success([
-        'messages' => $messages,
-        'is_live' => (bool)$is_live
-    ]);
+    wp_send_json_success(['messages' => $messages, 'is_live' => (bool)$is_live]);
 }
 
 function soft_ai_ajax_toggle_mode() {
     $ip = sanitize_text_field($_POST['ip']);
-    $mode = sanitize_text_field($_POST['mode']); // 'live' or 'ai'
-    
+    $mode = sanitize_text_field($_POST['mode']);
     if (!$ip) wp_send_json_error();
-
     $context = new Soft_AI_Context($ip, 'widget');
-    if ($mode === 'live') {
-        $context->set('live_chat_mode', true);
-    } else {
-        $context->set('live_chat_mode', false);
-    }
+    $context->set('live_chat_mode', ($mode === 'live'));
     wp_send_json_success();
 }
 
 function soft_ai_ajax_delete_conversation() {
     if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
-    
     global $wpdb;
     $ip = sanitize_text_field($_POST['ip']);
     $table = $wpdb->prefix . 'soft_ai_chat_logs';
-
-    if (!$ip) wp_send_json_error('Missing IP');
-
-    $deleted = $wpdb->delete($table, ['user_ip' => $ip]);
-    
-    if ($deleted === false) {
-        wp_send_json_error('Database error');
-    } else {
-        wp_send_json_success();
-    }
+    $wpdb->delete($table, ['user_ip' => $ip]);
+    wp_send_json_success();
 }
 
 function soft_ai_ajax_send_reply() {
     global $wpdb;
     $ip = sanitize_text_field($_POST['ip']);
     $msg = sanitize_text_field($_POST['message']);
-    
     if (!$ip || !$msg) wp_send_json_error();
-
     $wpdb->insert($wpdb->prefix . 'soft_ai_chat_logs', [
-        'time' => current_time('mysql'),
-        'user_ip' => $ip,
-        'provider' => 'live_admin', // Marker for admin reply
-        'model' => 'human',
-        'question' => '', 
-        'answer' => $msg, 
-        'source' => 'widget',
-        'is_read' => 1
+        'time' => current_time('mysql'), 'user_ip' => $ip, 'provider' => 'live_admin', 'model' => 'human',
+        'question' => '', 'answer' => $msg, 'source' => 'widget', 'is_read' => 1
     ]);
-    
-    // Auto enable Live Mode if admin replies (optional, but good UX)
     $context = new Soft_AI_Context($ip, 'widget');
     $context->set('live_chat_mode', true);
-    
     wp_send_json_success();
+}
+
+// NEW AJAX HANDLER FOR CANNED MESSAGES
+function soft_ai_ajax_get_canned_msgs() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'soft_ai_canned_msgs';
+    $results = $wpdb->get_results("SELECT id, shortcut, content FROM $table ORDER BY shortcut ASC");
+    wp_send_json_success($results);
 }
 
 
