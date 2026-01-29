@@ -3,7 +3,7 @@
  * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment & Social & Live Chat
  * Plugin URI:  https://soft.io.vn/soft-ai-chat
  * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + VietQR/PayPal + Facebook/Zalo + Live Chat (Human Handover).
- * Version:     3.2.0
+ * Version:     3.3.0
  * Author:      Tung Pham
  * License:     GPL-2.0+
  * Text Domain: soft-ai-chat
@@ -207,7 +207,7 @@ function soft_ai_chat_options_page() {
 }
 
 // ---------------------------------------------------------
-// 1.5. LIVE CHAT PAGE (UPDATED WITH TOGGLE)
+// 1.5. LIVE CHAT PAGE (UPDATED WITH DELETE)
 // ---------------------------------------------------------
 
 function soft_ai_live_chat_page() {
@@ -225,18 +225,18 @@ function soft_ai_live_chat_page() {
         .sac-mode-label { font-size: 13px; font-weight: normal; margin-left: 5px; color: #555; }
     </style>
 
-    <div class="wrap" style="height: calc(100vh - 100px); display: flex; flex-direction: column;">
+    <div class="wrap" style="height: auto; display: flex; flex-direction: column;">
         <h1 style="margin-bottom: 20px;">🔴 Live Chat (Human Support)</h1>
         
         <div style="display: flex; flex: 1; gap: 20px; height: 100%; overflow: hidden;">
-            <div style="width: 250px; background: #fff; border: 1px solid #ccd0d4; overflow-y: auto;" id="sac-admin-sessions">
+            <div style="height: 100vh; width: 250px; background: #fff; border: 1px solid #ccd0d4; overflow-y: auto;" id="sac-admin-sessions">
                 <div style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; background: #f8f9fa;">Recent Users</div>
                 <div id="sac-session-list">
                     <div style="padding:20px; text-align:center; color:#999;">Loading...</div>
                 </div>
             </div>
 
-            <div style="flex: 1; display: flex; flex-direction: column; background: #fff; border: 1px solid #ccd0d4; position: relative;">
+            <div style="height: 100vh; flex: 1; display: flex; flex-direction: column; background: #fff; border: 1px solid #ccd0d4; position: relative;">
                 <div style="padding: 10px 20px; border-bottom: 1px solid #eee; background: #f0f0f1; font-weight: bold; display: flex; justify-content: space-between; align-items: center;">
                     <div>
                         <span id="sac-current-user-title">Select a user to chat</span>
@@ -248,7 +248,10 @@ function soft_ai_live_chat_page() {
                             <span class="sac-mode-label" id="sac-mode-text">AI Auto-Bot</span>
                         </span>
                     </div>
-                    <button class="button button-small" onclick="loadLiveSessions()">Refresh Users</button>
+                    <div style="display:flex; gap: 10px;">
+                        <button class="button button-small" style="color: #a00; border-color: #a00;" id="sac-delete-btn" onclick="deleteConversation()" style="display:none;">🗑️ Delete History</button>
+                        <button class="button button-small" onclick="loadLiveSessions()">Refresh Users</button>
+                    </div>
                 </div>
                 
                 <div id="sac-admin-messages" style="flex: 1; padding: 20px; overflow-y: auto; background: #f6f7f7;">
@@ -286,7 +289,8 @@ function soft_ai_live_chat_page() {
     function openAdminChat(ip) {
         currentChatIp = ip;
         jQuery('#sac-current-user-title').text('Chatting with: ' + ip);
-        jQuery('#sac-mode-control').show(); // Show toggle
+        jQuery('#sac-mode-control').show(); 
+        jQuery('#sac-delete-btn').show(); // Show delete button
         
         loadLiveMessages();
         loadLiveSessions(); 
@@ -310,22 +314,12 @@ function soft_ai_live_chat_page() {
                     html += '</div>';
                 });
                 var container = document.getElementById('sac-admin-messages');
-                // Only update if content changed prevents flicker, but for simplicity we replace
-                // Ideally check last ID.
                 container.innerHTML = html;
                 
-                // Update Toggle State
-                var isLive = response.data.is_live; // true = Human Mode, false = AI Mode
+                var isLive = response.data.is_live; 
                 var toggle = document.getElementById('sac-mode-toggle');
                 var label = document.getElementById('sac-mode-text');
                 
-                // We only update the visual switch if the user isn't interacting with it currently
-                // But for basic version, just update it.
-                toggle.checked = !isLive; // Checked = AI ON, Unchecked = AI OFF (Live)
-                
-                // Invert Logic for UI: Let's make Check = Live Mode?
-                // Actually: Standard is Toggle ON = Feature Active.
-                // Let's say Toggle Checked = Live Mode Active.
                 toggle.checked = isLive;
                 label.innerText = isLive ? "🔴 Live Chat Mode (AI OFF)" : "🤖 AI Auto-Bot (AI ON)";
                 label.style.color = isLive ? "#d63031" : "#555";
@@ -337,7 +331,6 @@ function soft_ai_live_chat_page() {
     function toggleAiMode() {
         if(!currentChatIp) return;
         var isChecked = document.getElementById('sac-mode-toggle').checked;
-        // isChecked true => Enable Live Mode
         var newMode = isChecked ? 'live' : 'ai';
         
         jQuery.post(ajaxurl, {
@@ -345,7 +338,30 @@ function soft_ai_live_chat_page() {
             ip: currentChatIp,
             mode: newMode
         }, function(response) {
-            loadLiveMessages(); // Refresh UI to confirm
+            loadLiveMessages(); 
+        });
+    }
+
+    function deleteConversation() {
+        if(!currentChatIp) return;
+        if(!confirm('Are you sure you want to delete ALL history with ' + currentChatIp + '? This cannot be undone.')) return;
+
+        jQuery.post(ajaxurl, {
+            action: 'sac_delete_conversation',
+            ip: currentChatIp
+        }, function(response) {
+            if(response.success) {
+                // Reset UI
+                currentChatIp = null;
+                jQuery('#sac-admin-messages').html('<div style="text-align:center; color:#aaa; margin-top: 50px;">Conversation deleted. Select another user.</div>');
+                jQuery('#sac-current-user-title').text('Select a user to chat');
+                jQuery('#sac-mode-control').hide();
+                jQuery('#sac-delete-btn').hide();
+                if(adminPollInterval) clearInterval(adminPollInterval);
+                loadLiveSessions();
+            } else {
+                alert('Error deleting conversation.');
+            }
         });
     }
 
@@ -364,6 +380,7 @@ function soft_ai_live_chat_page() {
     }
 
     jQuery(document).ready(function(){
+        jQuery('#sac-delete-btn').hide(); // Hide by default
         loadLiveSessions();
         setInterval(loadLiveSessions, 10000); 
     });
@@ -379,6 +396,7 @@ add_action('wp_ajax_sac_get_sessions', 'soft_ai_ajax_get_sessions');
 add_action('wp_ajax_sac_get_messages', 'soft_ai_ajax_get_messages');
 add_action('wp_ajax_sac_send_reply', 'soft_ai_ajax_send_reply');
 add_action('wp_ajax_sac_toggle_mode', 'soft_ai_ajax_toggle_mode');
+add_action('wp_ajax_sac_delete_conversation', 'soft_ai_ajax_delete_conversation');
 
 function soft_ai_ajax_get_sessions() {
     global $wpdb;
@@ -463,6 +481,24 @@ function soft_ai_ajax_toggle_mode() {
         $context->set('live_chat_mode', false);
     }
     wp_send_json_success();
+}
+
+function soft_ai_ajax_delete_conversation() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
+    
+    global $wpdb;
+    $ip = sanitize_text_field($_POST['ip']);
+    $table = $wpdb->prefix . 'soft_ai_chat_logs';
+
+    if (!$ip) wp_send_json_error('Missing IP');
+
+    $deleted = $wpdb->delete($table, ['user_ip' => $ip]);
+    
+    if ($deleted === false) {
+        wp_send_json_error('Database error');
+    } else {
+        wp_send_json_success();
+    }
 }
 
 function soft_ai_ajax_send_reply() {
