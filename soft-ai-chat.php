@@ -1,9 +1,9 @@
 <?php
 /**
- * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment & Social & Live Chat
+ * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment & Social & Live Chat & Coupons
  * Plugin URI:  https://soft.io.vn/soft-ai-chat
- * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + VietQR/PayPal + Facebook/Zalo + Live Chat (Human Handover).
- * Version:     3.3.0
+ * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + Coupons + VietQR/PayPal + Facebook/Zalo + Live Chat (Human Handover).
+ * Version:     3.4.0
  * Author:      Tung Pham
  * License:     GPL-2.0+
  * Text Domain: soft-ai-chat
@@ -528,180 +528,227 @@ function soft_ai_ajax_send_reply() {
 
 
 // ---------------------------------------------------------
-// 1.7. HISTORY PAGE (UPDATED HIGHLIGHT & PAGINATION)
+// 1.7. HISTORY PAGE (REDESIGNED: CONVERSATION VIEW + MARKDOWN)
 // ---------------------------------------------------------
 
 function soft_ai_chat_history_page() {
     global $wpdb;
     $table_name = $wpdb->prefix . 'soft_ai_chat_logs';
 
-    // Xử lý xóa log
-    if (isset($_POST['delete_log']) && check_admin_referer('delete_log_' . $_POST['log_id'])) {
-        $wpdb->delete($table_name, ['id' => intval($_POST['log_id'])]);
-        echo '<div class="updated"><p>Log deleted.</p></div>';
-    }
+    // Xóa toàn bộ
     if (isset($_POST['clear_all_logs']) && check_admin_referer('clear_all_logs')) {
         $wpdb->query("TRUNCATE TABLE $table_name");
         echo '<div class="updated"><p>All logs cleared.</p></div>';
     }
 
-    // Phân trang
-    $per_page = 20;
-    $paged = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
-    $offset = ($paged - 1) * $per_page;
-    $total_items = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
-    $total_pages = ceil($total_items / $per_page);
-    $logs = $wpdb->get_results($wpdb->prepare("SELECT * FROM $table_name ORDER BY time DESC LIMIT %d OFFSET %d", $per_page, $offset));
+    // Xóa 1 thread (Conversation)
+    if (isset($_POST['delete_thread']) && isset($_POST['thread_ip']) && check_admin_referer('delete_thread_' . $_POST['thread_ip'])) {
+        $del_ip = sanitize_text_field($_POST['thread_ip']);
+        $wpdb->delete($table_name, ['user_ip' => $del_ip]);
+        echo '<div class="updated"><p>Conversation deleted.</p></div>';
+    }
+
+    // XEM CHI TIẾT 1 CUỘC TRÒ CHUYỆN
+    $view_ip = isset($_GET['view_ip']) ? sanitize_text_field($_GET['view_ip']) : null;
     
     ?>
     <div class="wrap">
-        <h1>Chat Logs (Archive)</h1>
+        <h1 class="wp-heading-inline">Chat History (Logs)</h1>
         
-        <form method="post" style="margin-bottom: 20px; text-align:right;">
-            <?php wp_nonce_field('clear_all_logs'); ?>
-            <input type="hidden" name="clear_all_logs" value="1">
-            <button type="submit" class="button button-link-delete" onclick="return confirm('Delete ALL logs?')">Clear All History</button>
-        </form>
-
-        <style>
-            .sac-modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 100000; justify-content: center; align-items: center; }
-            .sac-modal-box { background: #fff; width: 800px; max-width: 90%; max-height: 90vh; border-radius: 8px; box-shadow: 0 4px 25px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; }
-            .sac-modal-header { padding: 15px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; }
-            .sac-modal-title { font-size: 18px; font-weight: 600; margin: 0; }
-            .sac-modal-close { cursor: pointer; font-size: 24px; color: #999; }
-            .sac-modal-close:hover { color: #d63031; }
-            .sac-modal-body { padding: 20px; overflow-y: auto; font-size: 14px; line-height: 1.6; background: #fff; }
-            .sac-modal-row { margin-bottom: 20px; }
-            .sac-modal-label { font-weight: bold; display: block; margin-bottom: 6px; color: #555; text-transform: uppercase; font-size: 11px; }
-            .sac-modal-content-box { background: #f9f9f9; padding: 15px; border-radius: 4px; border: 1px solid #e0e0e0; min-height: 50px; }
-            .sac-modal-content-box img { max-width: 100%; height: auto; border-radius: 4px; margin-top: 5px; }
-            .sac-modal-content-box ul { list-style: disc; margin-left: 20px; }
-            .sac-modal-content-box a { color: #0073aa; text-decoration: underline; }
-            
-            /* Highlighting Admin Rows */
-            tr.sac-row-admin { background-color: #e6f7ff !important; }
-
-            /* Modern Pagination Styling */
-            .sac-pagination-wrapper { margin-top: 30px; display: flex; justify-content: center; align-items: center; width: 100%; }
-            .sac-pagination .page-numbers {
-                display: inline-flex; align-items: center; justify-content: center;
-                min-width: 34px; height: 34px; padding: 0 10px; margin: 0 3px;
-                border-radius: 6px; 
-                background: #fff; border: 1px solid #ddd;
-                color: #444; text-decoration: none; 
-                font-weight: 600; font-size: 13px;
-                transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
-                box-shadow: 0 2px 2px rgba(0,0,0,0.02);
-            }
-            .sac-pagination .page-numbers:hover:not(.current):not(.dots) {
-                border-color: #0073aa; color: #0073aa; background: #f0f7fd;
-                transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,115,170,0.15);
-            }
-            .sac-pagination .page-numbers.current {
-                background: #0073aa; color: #fff; border-color: #0073aa;
-                box-shadow: 0 2px 5px rgba(0,115,170,0.4);
-            }
-            .sac-pagination .dots { border: none; background: transparent; box-shadow: none; color: #999; }
-            .sac-pagination .next, .sac-pagination .prev { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif; font-weight: bold; }
-        </style>
-
-        <script>
-            function openSacLogModal(id) {
-                var time = document.getElementById('data-time-' + id).value;
-                var source = document.getElementById('data-source-' + id).value;
-                var provider = document.getElementById('data-provider-' + id).value;
-                var ip = document.getElementById('data-ip-' + id).value;
-                var question = document.getElementById('data-question-' + id).value;
-                var answer = document.getElementById('data-answer-' + id).value;
-
-                document.getElementById('sac-modal-meta').innerHTML = time + ' | ' + source + ' | ' + provider + ' | IP: ' + ip;
-                document.getElementById('sac-modal-question-box').textContent = question;
-                document.getElementById('sac-modal-answer-box').innerHTML = answer;
-                document.getElementById('sac-log-modal').style.display = 'flex';
-            }
-            function closeSacLogModal() { document.getElementById('sac-log-modal').style.display = 'none'; }
-            window.onclick = function(event) { if (event.target == document.getElementById('sac-log-modal')) closeSacLogModal(); }
-        </script>
-
-        <table class="wp-list-table widefat fixed striped">
-            <thead>
-                <tr>
-                    <th width="120">Time</th>
-                    <th width="80">Source</th>
-                    <th width="100">Provider</th>
-                    <th width="20%">Question</th>
-                    <th>Answer (Preview)</th>
-                    <th width="120">Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php if ($logs): foreach ($logs as $log): 
-                    // Highlight Admin Rows
-                    $row_class = ($log->provider === 'live_admin') ? 'sac-row-admin' : '';
-                ?>
-                <tr class="<?php echo $row_class; ?>">
-                    <td><?php echo esc_html($log->time); ?></td>
-                    <td><span class="badge"><?php echo esc_html($log->source); ?></span></td>
-                    <td><?php echo esc_html($log->provider); ?></td>
-                    <td><?php echo esc_html(mb_strimwidth($log->question, 0, 50, '...')); ?></td>
-                    <td><?php echo wp_strip_all_tags(mb_strimwidth($log->answer, 0, 80, '...')); ?></td>
-                    <td>
-                        <div style="display:flex; gap: 5px; align-items: center;">
-                            <button type="button" class="button button-secondary button-small" onclick="openSacLogModal(<?php echo $log->id; ?>)">View</button>
-                            <form method="post" style="display:inline-block; margin:0;">
-                                <?php wp_nonce_field('delete_log_' . $log->id); ?>
-                                <input type="hidden" name="delete_log" value="1"><input type="hidden" name="log_id" value="<?php echo $log->id; ?>">
-                                <button class="button button-link-delete" style="color: #a00;" onclick="return confirm('Delete?')">Del</button>
-                            </form>
-                        </div>
-                        <textarea id="data-time-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->time); ?></textarea>
-                        <textarea id="data-source-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->source); ?></textarea>
-                        <textarea id="data-provider-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->provider); ?></textarea>
-                        <textarea id="data-ip-<?php echo $log->id; ?>" style="display:none"><?php echo esc_html($log->user_ip); ?></textarea>
-                        <textarea id="data-question-<?php echo $log->id; ?>" style="display:none"><?php echo esc_textarea($log->question); ?></textarea>
-                        <textarea id="data-answer-<?php echo $log->id; ?>" style="display:none"><?php echo esc_textarea($log->answer); ?></textarea>
-                    </td>
-                </tr>
-                <?php endforeach; else: echo '<tr><td colspan="6">No history found.</td></tr>'; endif; ?>
-            </tbody>
-        </table>
-        
-        <?php if ($total_pages > 1): ?>
-        <div class="sac-pagination-wrapper">
-            <div class="sac-pagination">
-                <?php 
-                echo paginate_links([
-                    'base' => add_query_arg('paged', '%#%'),
-                    'total' => $total_pages,
-                    'current' => $paged,
-                    'prev_text' => '<span class="dashicons dashicons-arrow-left-alt2" style="margin-top:2px;"></span>',
-                    'next_text' => '<span class="dashicons dashicons-arrow-right-alt2" style="margin-top:2px;"></span>',
-                    'mid_size' => 2
-                ]); 
-                ?>
-            </div>
-        </div>
+        <?php if(!$view_ip): ?>
+            <form method="post" style="display:inline-block; margin-left:10px;">
+                <?php wp_nonce_field('clear_all_logs'); ?>
+                <input type="hidden" name="clear_all_logs" value="1">
+                <button type="submit" class="page-title-action" style="border:1px solid #d63638; color:#d63638; background:white; cursor:pointer;" onclick="return confirm('Delete ALL logs?')">Clear All History</button>
+            </form>
+        <?php else: ?>
+            <a href="<?php echo admin_url('admin.php?page=soft-ai-chat-history'); ?>" class="page-title-action">← Back to List</a>
         <?php endif; ?>
 
-        <div id="sac-log-modal" class="sac-modal-overlay">
-            <div class="sac-modal-box">
-                <div class="sac-modal-header">
-                    <h3 class="sac-modal-title">Chi tiết Log <span id="sac-modal-meta" style="font-weight:normal; font-size:12px; color:#666; margin-left:10px;"></span></h3>
-                    <div class="sac-modal-close" onclick="closeSacLogModal()">×</div>
-                </div>
-                <div class="sac-modal-body">
-                    <div class="sac-modal-row">
-                        <span class="sac-modal-label">User Input:</span>
-                        <div class="sac-modal-content-box" id="sac-modal-question-box" style="white-space: pre-wrap;"></div>
-                    </div>
-                    <div class="sac-modal-row">
-                        <span class="sac-modal-label">System Output:</span>
-                        <div class="sac-modal-content-box" id="sac-modal-answer-box"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <hr class="wp-header-end">
 
+        <style>
+            /* Base Styles */
+            .sac-container { margin-top: 20px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+            
+            /* List View Styles */
+            .sac-thread-list { background: #fff; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04); border-radius: 4px; overflow: hidden; }
+            .sac-thread-item { display: flex; align-items: center; padding: 15px 20px; border-bottom: 1px solid #f0f0f1; transition: background 0.2s; position: relative; }
+            .sac-thread-item:last-child { border-bottom: none; }
+            .sac-thread-item:hover { background: #f6f7f7; }
+            
+            .sac-avatar { width: 45px; height: 45px; background: #e0e0e0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #777; font-size: 18px; margin-right: 15px; }
+            .sac-thread-info { flex: 1; }
+            .sac-ip-title { font-size: 16px; font-weight: 600; color: #1d2327; margin-bottom: 4px; display: block; text-decoration: none; }
+            .sac-ip-title:hover { color: #2271b1; }
+            .sac-thread-meta { font-size: 13px; color: #646970; }
+            .sac-badge { background: #f0f0f1; color: #50575e; padding: 2px 8px; border-radius: 12px; font-size: 11px; margin-left: 5px; font-weight: 500; border: 1px solid #dcdcde; }
+            
+            .sac-action-btn { margin-left: 10px; text-decoration: none; padding: 6px 12px; border: 1px solid #2271b1; color: #2271b1; border-radius: 4px; font-size: 13px; transition: all 0.2s; }
+            .sac-action-btn:hover { background: #2271b1; color: #fff; }
+            .sac-del-btn { border-color: #d63638; color: #d63638; background: transparent; cursor: pointer; }
+            .sac-del-btn:hover { background: #d63638; color: #fff; }
+
+            /* Pagination */
+            .sac-pagination { margin-top: 20px; display: flex; justify-content: center; gap: 5px; }
+            .sac-page-num { padding: 5px 10px; border: 1px solid #ddd; background: #fff; text-decoration: none; color: #333; border-radius: 3px; }
+            .sac-page-num.current { background: #2271b1; color: #fff; border-color: #2271b1; }
+
+            /* Chat Detail View (Bubbles) */
+            .sac-chat-window { max-width: 800px; margin: 0 auto; background: #fff; border: 1px solid #ccd0d4; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+            .sac-chat-header { background: #f8f9fa; padding: 15px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+            .sac-chat-body { padding: 20px; background: #fff; max-height: 70vh; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; }
+            
+            .sac-bubble-row { display: flex; width: 100%; margin-bottom: 10px; }
+            .sac-bubble-row.user { justify-content: flex-end; }
+            .sac-bubble-row.bot { justify-content: flex-start; }
+            
+            .sac-bubble { max-width: 70%; padding: 10px 15px; border-radius: 18px; position: relative; font-size: 14px; line-height: 1.5; word-wrap: break-word; }
+            .sac-bubble-row.user .sac-bubble { background: #0073aa; color: #fff; border-bottom-right-radius: 4px; }
+            .sac-bubble-row.bot .sac-bubble { background: #f0f0f1; color: #1d2327; border-bottom-left-radius: 4px; border: 1px solid #e5e5e5; }
+            .sac-bubble-row.bot .sac-bubble strong { color: #0073aa; }
+            .sac-bubble-row.bot .sac-bubble img { max-width: 100%; height: auto; border-radius: 8px; margin-top: 5px; }
+            .sac-bubble-row.admin .sac-bubble { background: #e6f7ff; border: 1px solid #91d5ff; color: #0050b3; } /* For Live Chat Replies */
+
+            .sac-time { font-size: 11px; color: #888; margin-top: 4px; display: block; opacity: 0.8; }
+            .sac-bubble-row.user .sac-time { text-align: right; color: rgba(255,255,255,0.8); }
+
+        </style>
+
+        <div class="sac-container">
+            <?php 
+            if ($view_ip): 
+                // --- VIEW DETAIL (TRANSCRIPT) ---
+                $logs = $wpdb->get_results($wpdb->prepare("SELECT * FROM $table_name WHERE user_ip = %s ORDER BY time ASC", $view_ip));
+                
+                // Load Marked.js for rendering
+                echo '<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>';
+                ?>
+                <div class="sac-chat-window">
+                    <div class="sac-chat-header">
+                        <h2 style="margin:0; font-size: 16px;">Chat with: <strong><?php echo esc_html($view_ip); ?></strong></h2>
+                        <form method="post" style="margin:0;">
+                             <?php wp_nonce_field('delete_thread_' . $view_ip); ?>
+                             <input type="hidden" name="delete_thread" value="1">
+                             <input type="hidden" name="thread_ip" value="<?php echo esc_attr($view_ip); ?>">
+                             <button type="submit" class="button button-link-delete" onclick="return confirm('Delete this conversation?')">Delete Thread</button>
+                        </form>
+                    </div>
+                    <div class="sac-chat-body">
+                        <?php if ($logs): foreach ($logs as $log): 
+                            // Determine types to show properly
+                            $is_admin_reply = ($log->provider === 'live_admin');
+                            
+                            // User Message
+                            if (!empty($log->question) && $log->provider !== 'live_admin') {
+                                $qid = 'q-' . $log->id;
+                                echo '<div class="sac-bubble-row user">
+                                        <div class="sac-bubble">
+                                            <div id="'.$qid.'"></div>
+                                            <span class="sac-time">' . date('H:i, d/M', strtotime($log->time)) . '</span>
+                                        </div>
+                                        <textarea id="raw-'.$qid.'" style="display:none;">'.esc_textarea($log->question).'</textarea>
+                                        <script>
+                                            document.getElementById("'.$qid.'").innerHTML = marked.parse(document.getElementById("raw-'.$qid.'").value);
+                                        </script>
+                                      </div>';
+                            }
+                            
+                            // Bot/Admin Response
+                            if (!empty($log->answer)) {
+                                $cls = $is_admin_reply ? 'admin' : 'bot';
+                                $aid = 'a-' . $log->id;
+                                // We keep raw HTML/Markdown here
+                                $raw_answer = $log->answer; 
+                                
+                                echo '<div class="sac-bubble-row bot '.$cls.'">
+                                        <div class="sac-bubble">
+                                             <div id="'.$aid.'"></div>
+                                             <span class="sac-time">' . date('H:i, d/M', strtotime($log->time)) . '</span>
+                                        </div>
+                                        <textarea id="raw-'.$aid.'" style="display:none;">'.esc_textarea($raw_answer).'</textarea>
+                                        <script>
+                                            var raw = document.getElementById("raw-'.$aid.'").value;
+                                            document.getElementById("'.$aid.'").innerHTML = marked.parse(raw);
+                                        </script>
+                                      </div>';
+                            }
+                        endforeach; else: echo '<p style="text-align:center; color:#999;">No messages found.</p>'; endif; ?>
+                    </div>
+                </div>
+
+            <?php else: 
+                // --- VIEW LIST (GROUP BY IP) ---
+                // Pagination Logic
+                $per_page = 15;
+                $paged = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
+                $offset = ($paged - 1) * $per_page;
+                
+                // Count unique IPs
+                $total_threads = $wpdb->get_var("SELECT COUNT(DISTINCT user_ip) FROM $table_name");
+                $total_pages = ceil($total_threads / $per_page);
+                
+                // Get Grouped Data
+                $threads = $wpdb->get_results($wpdb->prepare("
+                    SELECT user_ip, MAX(time) as last_time, COUNT(*) as msg_count 
+                    FROM $table_name 
+                    GROUP BY user_ip 
+                    ORDER BY last_time DESC 
+                    LIMIT %d OFFSET %d
+                ", $per_page, $offset));
+                ?>
+                
+                <div class="sac-thread-list">
+                    <?php if ($threads): foreach ($threads as $th): 
+                        $first_char = strtoupper(substr($th->user_ip, 0, 1));
+                        $is_numeric_ip = filter_var($th->user_ip, FILTER_VALIDATE_IP);
+                        $display_name = $is_numeric_ip ? "Visitor (" . $th->user_ip . ")" : $th->user_ip;
+                        $time_ago = human_time_diff(strtotime($th->last_time), current_time('timestamp')) . ' ago';
+                    ?>
+                    <div class="sac-thread-item">
+                        <div class="sac-avatar"><?php echo $is_numeric_ip ? '🌐' : '👤'; ?></div>
+                        <div class="sac-thread-info">
+                            <a href="?page=soft-ai-chat-history&view_ip=<?php echo urlencode($th->user_ip); ?>" class="sac-ip-title">
+                                <?php echo esc_html($display_name); ?>
+                            </a>
+                            <div class="sac-thread-meta">
+                                Last active: <?php echo $time_ago; ?> 
+                                <span class="sac-badge"><?php echo $th->msg_count; ?> msgs</span>
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:5px;">
+                            <a href="?page=soft-ai-chat-history&view_ip=<?php echo urlencode($th->user_ip); ?>" class="sac-action-btn">View Chat</a>
+                            <form method="post" style="display:inline;">
+                                <?php wp_nonce_field('delete_thread_' . $th->user_ip); ?>
+                                <input type="hidden" name="delete_thread" value="1">
+                                <input type="hidden" name="thread_ip" value="<?php echo esc_attr($th->user_ip); ?>">
+                                <button type="submit" class="sac-action-btn sac-del-btn" onclick="return confirm('Delete this conversation?')">×</button>
+                            </form>
+                        </div>
+                    </div>
+                    <?php endforeach; else: ?>
+                        <div style="padding:40px; text-align:center; color:#999;">No chat history found.</div>
+                    <?php endif; ?>
+                </div>
+
+                <?php if ($total_pages > 1): ?>
+                <div class="sac-pagination-wrapper">
+                    <div class="sac-pagination">
+                        <?php 
+                        echo paginate_links([
+                            'base' => add_query_arg('paged', '%#%'),
+                            'total' => $total_pages,
+                            'current' => $paged,
+                            'prev_text' => '«',
+                            'next_text' => '»'
+                        ]); 
+                        ?>
+                    </div>
+                </div>
+                <?php endif; ?>
+
+            <?php endif; ?>
+        </div>
     </div>
     <?php
 }
@@ -761,7 +808,10 @@ class Soft_AI_Context {
 
     public function empty_cart() {
         if ($this->source === 'widget' && function_exists('WC')) WC()->cart->empty_cart();
-        else $this->set('cart', []);
+        else {
+            $this->set('cart', []);
+            $this->set('coupons', []); // Clear coupons on empty
+        }
     }
 
     public function get_cart_count() {
@@ -938,9 +988,12 @@ function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '')
                      "   {\"action\": \"list_products\"}\n" .
                      "   {\"action\": \"check_cart\"}\n" .
                      "   {\"action\": \"checkout\"}\n" .
+                     "   {\"action\": \"list_coupons\"}\n" .
+                     "   {\"action\": \"apply_coupon\", \"code\": \"CODE_HERE\"}\n" .
                      "2. If user asks general discovery questions like 'bán gì', 'có gì', 'sản phẩm gì', 'menu', use action 'list_products'.\n" .
-                     "3. For general chat, answer normally in Vietnamese.\n" .
-                     "4. If unknown, admit it politely.";
+                     "3. If user asks about discounts, coupons, sales, use action 'list_coupons'.\n" .
+                     "4. For general chat, answer normally in Vietnamese.\n" .
+                     "5. If unknown, admit it politely.";
 
     // 6. Call API
     $ai_response = soft_ai_chat_call_api($provider, $model, $system_prompt, $question, $options);
@@ -975,6 +1028,53 @@ function soft_ai_process_order_logic($intent, $context) {
     $source = $context->source;
 
     switch ($action) {
+        case 'list_coupons':
+            $args = ['post_type' => 'shop_coupon', 'post_status' => 'publish', 'posts_per_page' => 5];
+            $coupons = get_posts($args);
+            if (empty($coupons)) return "Hiện tại không có mã giảm giá nào ạ.";
+
+            $msg = "Dạ, shop đang có các mã ưu đãi này:\n";
+            foreach ($coupons as $c) {
+                $code = $c->post_title;
+                $wc_coupon = new WC_Coupon($code);
+                // Basic validation checks
+                if ($wc_coupon->get_usage_limit() > 0 && $wc_coupon->get_usage_count() >= $wc_coupon->get_usage_limit()) continue;
+                if ($wc_coupon->get_date_expires() && $wc_coupon->get_date_expires()->getTimestamp() < time()) continue;
+
+                $desc = $c->post_excerpt ? "({$c->post_excerpt})" : "";
+                $amount = strip_tags(wc_price($wc_coupon->get_amount()));
+                if($wc_coupon->get_discount_type() == 'percent') $amount = $wc_coupon->get_amount() . '%';
+                
+                $msg .= "- **$code** $desc: Giảm $amount\n";
+            }
+            return $msg . "\nBạn muốn dùng mã nào cứ nhắn 'Dùng mã [CODE]' nhé!";
+
+        case 'apply_coupon':
+            $code = strtoupper(sanitize_text_field($intent['code'] ?? ''));
+            if (!$code) return "Bạn chưa nhập mã. Vui lòng nhập mã cụ thể.";
+
+            if ($source === 'widget' && function_exists('WC')) {
+                if (!WC()->cart->has_discount($code)) {
+                    $res = WC()->cart->apply_coupon($code);
+                    if ($res === true) {
+                        return "✅ Đã áp dụng mã **$code** thành công! Tổng đơn hiện tại: " . WC()->cart->get_cart_total();
+                    } else {
+                        return "❌ Mã này không hợp lệ hoặc không áp dụng được cho đơn này ạ.";
+                    }
+                } else {
+                    return "Mã này đã được áp dụng rồi ạ.";
+                }
+            } else {
+                // For Social/Transient users, store for later
+                $saved_coupons = $context->get('coupons') ?: [];
+                if (!in_array($code, $saved_coupons)) {
+                    $saved_coupons[] = $code;
+                    $context->set('coupons', $saved_coupons);
+                    return "✅ Đã lưu mã **$code**. Sẽ áp dụng khi tạo đơn.";
+                }
+                return "Mã này đã lưu rồi ạ.";
+            }
+
         case 'list_products':
             $args = ['limit' => 12, 'status' => 'publish', 'orderby' => 'date', 'order' => 'DESC'];
             $products = wc_get_products($args);
@@ -1251,6 +1351,11 @@ function soft_ai_finalize_order($context, $gateway_or_code) {
                 $vid = isset($item['variation_id']) ? $item['variation_id'] : 0;
                 $p = wc_get_product($vid ? $vid : $pid);
                 if ($p) $order->add_product($p, $item['qty']);
+            }
+            // Apply coupons stored in context for non-widget
+            $stored_coupons = $context->get('coupons') ?: [];
+            foreach($stored_coupons as $code) {
+                $order->apply_coupon($code);
             }
         }
 
