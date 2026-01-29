@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment & Social & Live Chat & Coupons & Canned Responses
  * Plugin URI:  https://soft.io.vn/soft-ai-chat
- * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + Coupons + VietQR/PayPal + Facebook/Zalo + Live Chat + Canned Responses.
- * Version:     3.5.0
+ * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + Coupons + VietQR/PayPal + Facebook/Zalo + Live Chat + Canned Responses + Auto Suggestions.
+ * Version:     3.5.2
  * Author:      Tung Pham
  * License:     GPL-2.0+
  * Text Domain: soft-ai-chat
@@ -344,6 +344,30 @@ function soft_ai_live_chat_page() {
         .sac-canned-item { padding: 8px 12px; border-bottom: 1px solid #f9f9f9; cursor: pointer; font-size: 13px; }
         .sac-canned-item:hover { background: #f0f7fd; color: #0073aa; }
         .sac-canned-shortcut { font-weight: bold; color: #555; display: inline-block; width: 80px; }
+
+        /* Auto Suggestion Chips */
+        #sac-suggestions { 
+            padding: 8px 15px; 
+            background: #fffbe6; 
+            display: none; 
+            border-top: 1px solid #ffe58f; 
+            white-space: nowrap; 
+            overflow-x: auto; 
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            right: 0;
+            z-index: 99;
+        }
+        .sac-suggest-chip { 
+            display: inline-flex; align-items: center;
+            background: #fff7e6; color: #d46b08; border: 1px solid #ffd591; 
+            padding: 4px 10px; border-radius: 15px; font-size: 12px; 
+            margin-right: 8px; cursor: pointer; 
+            transition: all 0.2s;
+        }
+        .sac-suggest-chip:hover { background: #ffc069; color: #fff; border-color: #fa8c16; }
+        .sac-suggest-label { font-weight:bold; margin-right: 5px; }
     </style>
 
     <div class="wrap" style="height: auto; display: flex; flex-direction: column;">
@@ -380,6 +404,8 @@ function soft_ai_live_chat_page() {
                 </div>
 
                 <div style="padding: 15px; background: #fff; border-top: 1px solid #ddd; display: flex; gap: 10px; position: relative;">
+                    <div id="sac-suggestions"></div>
+
                     <div id="sac-canned-popup">
                         <input type="text" id="sac-canned-search" placeholder="🔍 Tìm câu mẫu (gõ từ khóa)..." onkeyup="filterCanned()">
                         <div id="sac-canned-list">Fetching...</div>
@@ -420,6 +446,13 @@ function soft_ai_live_chat_page() {
         jQuery('#sac-mode-control').show(); 
         jQuery('#sac-delete-btn').show(); 
         
+        // Ensure canned msgs are loaded for auto-suggest
+        if(allCannedMsgs.length === 0) {
+            jQuery.get(ajaxurl, { action: 'sac_get_canned_msgs' }, function(res) {
+                if(res.success) allCannedMsgs = res.data;
+            });
+        }
+
         loadLiveMessages();
         loadLiveSessions(); 
         
@@ -432,6 +465,8 @@ function soft_ai_live_chat_page() {
         jQuery.get(ajaxurl, { action: 'sac_get_messages', ip: currentChatIp }, function(response) {
             if(response.success) {
                 var html = '';
+                var lastUserMsg = '';
+
                 response.data.messages.forEach(function(msg) {
                     var align = msg.is_admin ? 'text-align:right;' : 'text-align:left;';
                     var bg = msg.is_admin ? 'background:#0073aa; color:white;' : 'background:#e5e5e5; color:#333;';
@@ -439,10 +474,16 @@ function soft_ai_live_chat_page() {
                     html += '<div style="display:inline-block; padding: 8px 12px; border-radius: 15px; max-width: 70%; ' + bg + '">' + msg.content + '</div>';
                     html += '<div style="font-size:10px; color:#999; margin-top:2px;">' + msg.time + '</div>';
                     html += '</div>';
+                    
+                    // Capture last user message for auto-suggest
+                    if(!msg.is_admin) lastUserMsg = msg.content; 
                 });
                 var container = document.getElementById('sac-admin-messages');
                 container.innerHTML = html;
                 
+                // Auto Suggest Check
+                checkAutoSuggestions(lastUserMsg);
+
                 var isLive = response.data.is_live; 
                 var toggle = document.getElementById('sac-mode-toggle');
                 var label = document.getElementById('sac-mode-text');
@@ -453,6 +494,37 @@ function soft_ai_live_chat_page() {
                 label.style.fontWeight = isLive ? "bold" : "normal";
             }
         });
+    }
+
+    function checkAutoSuggestions(msg) {
+        var container = document.getElementById('sac-suggestions');
+        if (!msg || allCannedMsgs.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+
+        var found = [];
+        var lowerMsg = msg.toLowerCase();
+
+        allCannedMsgs.forEach(function(item) {
+            if (lowerMsg.includes(item.shortcut.toLowerCase())) {
+                found.push(item);
+            }
+        });
+
+        if (found.length > 0) {
+            var html = '';
+            found.forEach(function(item) {
+                var safeContent = item.content.replace(/"/g, '&quot;').replace(/'/g, "\\'");
+                html += `<div class="sac-suggest-chip" onclick="insertCanned('${safeContent}')">
+                    <span class="sac-suggest-label">💡 Gợi ý: [${item.shortcut}]</span> Click để dùng
+                </div>`;
+            });
+            container.innerHTML = html;
+            container.style.display = 'block';
+        } else {
+            container.style.display = 'none';
+        }
     }
 
     function toggleAiMode() {
@@ -472,6 +544,7 @@ function soft_ai_live_chat_page() {
                 jQuery('#sac-current-user-title').text('Select a user to chat');
                 jQuery('#sac-mode-control').hide();
                 jQuery('#sac-delete-btn').hide();
+                document.getElementById('sac-suggestions').style.display = 'none';
                 if(adminPollInterval) clearInterval(adminPollInterval);
                 loadLiveSessions();
             } else { alert('Error deleting conversation.'); }
@@ -482,6 +555,7 @@ function soft_ai_live_chat_page() {
         var txt = jQuery('#sac-admin-input').val().trim();
         if(!txt || !currentChatIp) return;
         jQuery('#sac-admin-input').val(''); 
+        document.getElementById('sac-suggestions').style.display = 'none'; // Hide suggestion after sending
         jQuery.post(ajaxurl, { action: 'sac_send_reply', ip: currentChatIp, message: txt }, function(response) { loadLiveMessages(); });
     }
 
@@ -530,6 +604,7 @@ function soft_ai_live_chat_page() {
         var decoded = text.replace(/&quot;/g, '"');
         jQuery('#sac-admin-input').val(decoded);
         document.getElementById('sac-canned-popup').style.display = 'none';
+        document.getElementById('sac-suggestions').style.display = 'none';
         document.getElementById('sac-admin-input').focus();
     }
 
@@ -542,6 +617,10 @@ function soft_ai_live_chat_page() {
 
     jQuery(document).ready(function(){
         jQuery('#sac-delete-btn').hide(); 
+        // Preload canned messages
+        jQuery.get(ajaxurl, { action: 'sac_get_canned_msgs' }, function(res) {
+            if(res.success) allCannedMsgs = res.data;
+        });
         loadLiveSessions();
         setInterval(loadLiveSessions, 10000); 
     });
@@ -1108,9 +1187,10 @@ function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '')
                      "   {\"action\": \"list_coupons\"}\n" .
                      "   {\"action\": \"apply_coupon\", \"code\": \"CODE_HERE\"}\n" .
                      "2. If user asks general discovery questions like 'bán gì', 'có gì', 'sản phẩm gì', 'menu', use action 'list_products'.\n" .
-                     "3. If user asks about discounts, coupons, sales, use action 'list_coupons'.\n" .
-                     "4. For general chat, answer normally in Vietnamese.\n" .
-                     "5. If unknown, admit it politely.";
+                     "3. If user asks about 'mã giảm giá', 'coupon', 'voucher', 'khuyến mãi', 'ưu đãi', 'discount', use action 'list_coupons'.\n" .
+                     "4. If user wants to apply a code (e.g. 'dùng mã ABC', 'nhập mã XYZ', 'áp dụng mã...'), use action 'apply_coupon'.\n" .
+                     "5. For general chat, answer normally in Vietnamese.\n" .
+                     "6. If unknown, admit it politely.";
 
     // 6. Call API
     $ai_response = soft_ai_chat_call_api($provider, $model, $system_prompt, $question, $options);
