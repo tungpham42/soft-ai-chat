@@ -1223,7 +1223,8 @@ function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '')
                      "3. If user asks about 'mã giảm giá', 'coupon', 'voucher', 'khuyến mãi', 'ưu đãi', 'discount', use action 'list_coupons'.\n" .
                      "4. If user wants to apply a code (e.g. 'dùng mã ABC', 'nhập mã XYZ', 'áp dụng mã...'), use action 'apply_coupon'.\n" .
                      "5. For general chat, answer normally in Vietnamese.\n" .
-                     "6. If unknown, admit it politely.";
+                     "6. If you use tables, use standard Markdown table format. Keep tables simple with 2-3 columns maximum for mobile view." .
+                     "7. If unknown, admit it politely.";
 
     // 6. Call API
     $ai_response = soft_ai_chat_call_api($provider, $model, $system_prompt, $question, $options);
@@ -1908,6 +1909,21 @@ function soft_ai_chat_inject_widget() {
     ?>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
     <style>
+        .sac-msg.bot table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 10px 0;
+            font-size: 13px;
+        }
+        .sac-msg.bot th, .sac-msg.bot td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        .sac-msg.bot th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
         #sac-trigger {
             position: fixed; bottom: 20px; right: 20px; width: 60px; height: 60px;
             background: <?php echo esc_attr($color); ?>; color: white; border-radius: 50%;
