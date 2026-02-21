@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment & Social & Live Chat & Coupons & Canned Responses
  * Plugin URI:  https://soft.io.vn/soft-ai-chat
- * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + Coupons + VietQR/PayPal + Facebook/Zalo + Live Chat + Canned Responses + Auto Suggestions + Group Quantity.
- * Version:     3.5.4
+ * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + Coupons + VietQR/PayPal + Facebook/Zalo + Live Chat + Canned Responses + Auto Suggestions.
+ * Version:     3.5.3
  * Author:      Tung Pham
  * License:     GPL-2.0+
  * Text Domain: soft-ai-chat
@@ -1373,42 +1373,7 @@ function soft_ai_process_order_logic($intent, $context) {
                 $attr_keys = array_keys($attributes); 
                 
                 if (!empty($attr_keys) && $p->is_type('variable')) {
-                    // Cải tiến: Tự phát hiện các thuộc tính thuộc dạng Nhóm đối tượng (Adults, Children...)
-                    $group_attr_key = null;
-                    $group_terms = [];
-                    $keywords = ['người lớn', 'trẻ em', 'em bé', 'nguoi lon', 'tre em', 'em be', 'adult', 'child', 'infant', 'người', 'khách'];
-
-                    foreach ($attr_keys as $attr_key) {
-                        $terms = wc_get_product_terms($p->get_id(), $attr_key, array('fields' => 'names'));
-                        if (!is_wp_error($terms) && !empty($terms)) {
-                            foreach ($terms as $term) {
-                                $lower_term = mb_strtolower($term);
-                                foreach ($keywords as $kw) {
-                                    if (strpos($lower_term, $kw) !== false) {
-                                        $group_attr_key = $attr_key;
-                                        $group_terms = $terms;
-                                        break 3;
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Tách biệt các thuộc tính thường (cần hỏi trước) và thuộc tính nhóm đối tượng (hỏi số lượng sau)
-                    $normal_attrs = [];
-                    if ($group_attr_key) {
-                        foreach ($attr_keys as $k) {
-                            if ($k !== $group_attr_key) $normal_attrs[] = $k;
-                        }
-                        $context->set('group_attr_key', $group_attr_key);
-                        $context->set('group_qty_queue', $group_terms);
-                        $context->set('group_qty_answers', []);
-                    } else {
-                        $normal_attrs = $attr_keys;
-                        $context->set('group_attr_key', null);
-                    }
-
-                    $context->set('attr_queue', $normal_attrs);
+                    $context->set('attr_queue', $attr_keys);
                     $context->set('attr_answers', []); 
                     $context->set('bot_collecting_info_step', 'process_attribute_loop'); 
                     $question = soft_ai_ask_next_attribute($context, $p);
@@ -1462,6 +1427,7 @@ function soft_ai_handle_ordering_steps($message, $step, $context) {
     switch ($step) {
         case 'process_attribute_loop':
             $current_slug = $context->get('current_asking_attr');
+            $clean_message = trim($message);
             $valid_options = $context->get('valid_options_for_' . $current_slug);
             $is_valid = false;
             
@@ -1490,23 +1456,6 @@ function soft_ai_handle_ordering_steps($message, $step, $context) {
 
             $p = wc_get_product($context->get('pending_product_id'));
             return soft_ai_ask_next_attribute($context, $p);
-
-        case 'process_group_qty_loop':
-            $current_term = $context->get('current_asking_group_term');
-            $qty = intval($clean_message);
-            if ($qty < 0) return "Số lượng không hợp lệ. Vui lòng nhập lại số lượng cho **$current_term** (nhập 0 nếu không có):";
-            
-            $answers = $context->get('group_qty_answers') ?: [];
-            if ($qty > 0) {
-                $answers[$current_term] = $qty;
-            }
-            $context->set('group_qty_answers', $answers);
-
-            $pid = $context->get('pending_product_id');
-            $p = wc_get_product($pid);
-            if (!$p) return "Có lỗi xảy ra, không tìm thấy sản phẩm.";
-
-            return soft_ai_ask_next_group_qty($context, $p);
 
         case 'ask_quantity':
             $qty = intval($clean_message);
@@ -1607,12 +1556,6 @@ function soft_ai_handle_ordering_steps($message, $step, $context) {
 function soft_ai_ask_next_attribute($context, $product) {
     $queue = $context->get('attr_queue');
     if (empty($queue)) {
-        // Kiểm tra xem có cần hỏi số lượng từng nhóm đối tượng (Người lớn, trẻ em...) không
-        if ($context->get('group_attr_key')) {
-            $context->set('bot_collecting_info_step', 'process_group_qty_loop');
-            return soft_ai_ask_next_group_qty($context, $product);
-        }
-
         $context->set('bot_collecting_info_step', 'ask_quantity');
         return "Dạ bạn đã chọn đủ thông tin. Bạn muốn lấy số lượng bao nhiêu ạ?";
     }
@@ -1630,77 +1573,6 @@ function soft_ai_ask_next_attribute($context, $product) {
     }
     $label = wc_attribute_label($current_slug);
     return "Bạn chọn **$label** loại nào?$options_text";
-}
-
-function soft_ai_ask_next_group_qty($context, $product) {
-    $queue = $context->get('group_qty_queue');
-    if (empty($queue)) {
-        return soft_ai_add_group_variations_to_cart($context, $product);
-    }
-    $current_term = array_shift($queue);
-    $context->set('group_qty_queue', $queue);
-    $context->set('current_asking_group_term', $current_term);
-    return "Bạn muốn lấy số lượng cho nhóm **" . $current_term . "** là bao nhiêu? (Nhập 0 nếu không có)";
-}
-
-function soft_ai_add_group_variations_to_cart($context, $product) {
-    $group_answers = $context->get('group_qty_answers');
-    $normal_answers = $context->get('attr_answers') ?: [];
-    $group_attr_key = $context->get('group_attr_key');
-    $pid = $product->get_id();
-    
-    if (empty($group_answers)) {
-        $context->set('bot_collecting_info_step', null);
-        return "Bạn đã không chọn số lượng cho bất kỳ nhóm nào. Đã hủy thêm vào giỏ. Bạn cần giúp gì khác không?";
-    }
-
-    $data_store = new WC_Product_Data_Store_CPT();
-    $added_count = 0;
-    $total_qty = 0;
-
-    foreach ($group_answers as $term_name => $qty) {
-        if ($qty <= 0) continue;
-
-        $var_data = [];
-        // Lắp ráp các thuộc tính thường (vd: Ngày đi, Giờ đi, Màu sắc)
-        foreach ($normal_answers as $attr_key => $user_val_name) {
-            $slug_val = $user_val_name; 
-            if (taxonomy_exists($attr_key)) {
-                $term = get_term_by('name', $user_val_name, $attr_key);
-                if ($term) $slug_val = $term->slug;
-            } else {
-                $slug_val = sanitize_title($user_val_name);
-            }
-            $var_data['attribute_' . $attr_key] = $slug_val;
-        }
-        
-        // Lắp ráp thuộc tính nhóm (vd: Người lớn)
-        $group_slug_val = $term_name;
-        if (taxonomy_exists($group_attr_key)) {
-            $term = get_term_by('name', $term_name, $group_attr_key);
-            if ($term) $group_slug_val = $term->slug;
-        } else {
-            $group_slug_val = sanitize_title($term_name);
-        }
-        $var_data['attribute_' . $group_attr_key] = $group_slug_val;
-
-        // Tìm variation tương ứng
-        $var_id = $data_store->find_matching_product_variation($product, $var_data);
-        
-        if ($var_id) {
-            $context->add_to_cart($pid, $qty, $var_id, $var_data);
-            $added_count++;
-            $total_qty += $qty;
-        }
-    }
-
-    $context->set('bot_collecting_info_step', null);
-    if ($added_count > 0) {
-        $total = $context->get_cart_total_string();
-        return "✅ Đã thêm thành công vào giỏ ($total_qty vé/sản phẩm). Tổng tạm tính: $total.\nGõ 'Thanh toán' để chốt đơn hoặc hỏi mua tiếp.";
-    } else {
-        return "Xin lỗi, phiên bản bạn chọn hiện không tồn tại hoặc đã hết hàng. Vui lòng tìm và chọn lại.";
-    }
 }
 
 function soft_ai_present_payment_gateways($context, $msg) {
