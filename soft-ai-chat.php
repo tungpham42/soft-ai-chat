@@ -1093,15 +1093,15 @@ function soft_ai_notify_admin_by_email($question, $platform, $user_id) {
     if (empty($admin_email)) return;
 
     $subject = "[Soft AI Chat] Tin nhắn mới từ " . strtoupper($platform);
-    $body = "Bạn có tin nhắn mới từ khách hàng trên website.\n\n";
-    $body .= "------------------------------------------\n";
-    $body .= "Nền tảng: " . $platform . "\n";
-    $body .= "User ID/IP: " . $user_id . "\n";
-    $body .= "Nội dung: " . $question . "\n";
-    $body .= "------------------------------------------\n\n";
+    $body = "Bạn có tin nhắn mới từ khách hàng trên website.<br/>\n\n";
+    $body .= "------------------------------------------<br/>\n";
+    $body .= "Nền tảng: " . $platform . "<br/>\n";
+    $body .= "User ID/IP: " . $user_id . "<br/>\n";
+    $body .= "Nội dung: " . $question . "<br/>\n";
+    $body .= "------------------------------------------<br/>\n\n";
     $body .= "Đi tới Live Chat để trả lời: " . admin_url('admin.php?page=soft-ai-live-chat');
 
-    $headers = array('Content-Type: text/plain; charset=UTF-8');
+    $headers = array('Content-Type: text/html; charset=UTF-8');
 
     wp_mail($admin_email, $subject, $body, $headers);
 }
