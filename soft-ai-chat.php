@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment & Social & Live Chat & Coupons & Canned Responses
  * Plugin URI:  https://soft.io.vn/soft-ai-chat
- * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + Coupons + VietQR/PayPal + Facebook/Zalo + Live Chat + Canned Responses + Auto Suggestions.
- * Version:     3.5.3
+ * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + Coupons + VietQR/PayPal + Facebook/Zalo + Live Chat + Canned Responses + Auto Suggestions + Group Quantity.
+ * Version:     3.5.5
  * Author:      Tung Pham
  * License:     GPL-2.0+
  * Text Domain: soft-ai-chat
@@ -473,9 +473,17 @@ function soft_ai_live_chat_page() {
                     var align = msg.is_admin ? 'text-align:right;' : 'text-align:left;';
                     var bg = msg.is_admin ? 'background:#0073aa; color:white;' : 'background:#e5e5e5; color:#333;';
                     var parsedContent = marked.parse(msg.content);
+                    
+                    var adminNameHtml = '';
+                    if (msg.is_admin) {
+                        var nameLabel = msg.admin_name ? msg.admin_name : 'AI Bot';
+                        var icon = (nameLabel === 'AI Bot') ? '🤖' : '🗣️';
+                        adminNameHtml = '<div style="font-size:11px; font-weight:bold; margin-bottom:5px; opacity:0.9;">' + icon + ' ' + nameLabel + '</div>';
+                    }
+
                     html += '<div style="margin-bottom: 10px; ' + align + '">';
-                    html += '<div style="display:inline-block; padding: 8px 12px; border-radius: 15px; max-width: 70%; ' + bg + '">' + parsedContent + '</div>';
-                    html += '<div style="font-size:10px; color:#999; margin-top:2px;">' + msg.time + '</div>';
+                    html += '<div style="display:inline-block; padding: 8px 12px; border-radius: 15px; max-width: 70%; ' + bg + '">' + adminNameHtml + parsedContent + '</div>';
+                    html += '<div style="font-size:10px; color:#666; margin-top:2px;">' + msg.time + '</div>';
                     html += '</div>';
                     
                     // Capture last user message for auto-suggest
@@ -669,7 +677,7 @@ function soft_ai_ajax_get_sessions() {
     ");
     $data = [];
     foreach($results as $r) {
-        $data[] = ['ip' => $r->ip, 'time' => date('H:i', strtotime($r->latest_time)), 'unread' => $r->unread];
+        $data[] = ['ip' => $r->ip, 'time' => date('H:i, d/m/Y', strtotime($r->latest_time)), 'unread' => $r->unread];
     }
     wp_send_json_success($data);
 }
@@ -687,14 +695,26 @@ function soft_ai_ajax_get_messages() {
     foreach($logs as $log) {
         $is_admin = ($log->provider === 'live_admin');
         $content = $is_admin ? $log->answer : $log->question;
-        if ($log->provider == 'live_user') { $content = $log->question; $is_admin = false; } 
-        elseif ($log->provider == 'live_admin') { $content = $log->answer; $is_admin = true; } 
-        elseif (!empty($log->answer) && !empty($log->question)) {
-             $messages[] = ['content' => $log->question, 'is_admin' => false, 'time' => date('H:i', strtotime($log->time))];
-             $messages[] = ['content' => $log->answer, 'is_admin' => true, 'time' => date('H:i', strtotime($log->time))];
-             continue;
+        $admin_name = '';
+
+        if ($log->provider == 'live_user') { 
+            $content = $log->question; 
+            $is_admin = false; 
+        } elseif ($log->provider == 'live_admin') { 
+            $content = $log->answer; 
+            $is_admin = true; 
+            $admin_name = (!empty($log->model) && $log->model !== 'human') ? $log->model : 'Admin';
+        } elseif (!empty($log->answer) && !empty($log->question)) {
+            $messages[] = ['content' => $log->question, 'is_admin' => false, 'time' => date('H:i, d/m/Y', strtotime($log->time))];
+            $messages[] = ['content' => $log->answer, 'is_admin' => true, 'admin_name' => 'AI Bot', 'time' => date('H:i, d/m/Y', strtotime($log->time))];
+            continue;
         }
-        $messages[] = ['content' => $content, 'is_admin' => $is_admin, 'time' => date('H:i', strtotime($log->time))];
+
+        if ($is_admin && empty($admin_name)) {
+            $admin_name = 'AI Bot';
+        }
+
+        $messages[] = ['content' => $content, 'is_admin' => $is_admin, 'admin_name' => $admin_name, 'time' => date('H:i, d/m/Y', strtotime($log->time))];
     }
     wp_send_json_success(['messages' => $messages, 'is_live' => (bool)$is_live]);
 }
@@ -722,8 +742,13 @@ function soft_ai_ajax_send_reply() {
     $ip = sanitize_text_field($_POST['ip']);
     $msg = sanitize_text_field($_POST['message']);
     if (!$ip || !$msg) wp_send_json_error();
+
+    // Get Admin Name
+    $current_user = wp_get_current_user();
+    $admin_name = !empty($current_user->display_name) ? $current_user->display_name : 'Admin';
+
     $wpdb->insert($wpdb->prefix . 'soft_ai_chat_logs', [
-        'time' => current_time('mysql'), 'user_ip' => $ip, 'provider' => 'live_admin', 'model' => 'human',
+        'time' => current_time('mysql'), 'user_ip' => $ip, 'provider' => 'live_admin', 'model' => $admin_name,
         'question' => '', 'answer' => $msg, 'source' => 'widget', 'is_read' => 1
     ]);
     $context = new Soft_AI_Context($ip, 'widget');
@@ -858,7 +883,7 @@ function soft_ai_chat_history_page() {
                                 echo '<div class="sac-bubble-row user">
                                         <div class="sac-bubble">
                                             <div id="'.$qid.'"></div>
-                                            <span class="sac-time">' . date('H:i, d/M', strtotime($log->time)) . '</span>
+                                            <span class="sac-time">' . date('H:i, d/m/Y', strtotime($log->time)) . '</span>
                                         </div>
                                         <textarea id="raw-'.$qid.'" style="display:none;">'.esc_textarea($log->question).'</textarea>
                                         <script>
@@ -874,10 +899,19 @@ function soft_ai_chat_history_page() {
                                 // We keep raw HTML/Markdown here
                                 $raw_answer = $log->answer; 
                                 
+                                $admin_name_html = '';
+                                if ($is_admin_reply) {
+                                    $name = (!empty($log->model) && $log->model !== 'human') ? esc_html($log->model) : 'Admin';
+                                    $admin_name_html = "<div style='font-size:12px; font-weight:bold; margin-bottom:6px;'>🗣️ {$name}</div>";
+                                } else {
+                                    $admin_name_html = "<div style='font-size:12px; font-weight:bold; margin-bottom:6px; color:#555;'>🤖 AI Bot</div>";
+                                }
+
                                 echo '<div class="sac-bubble-row bot '.$cls.'">
                                         <div class="sac-bubble">
+                                             ' . $admin_name_html . '
                                              <div id="'.$aid.'"></div>
-                                             <span class="sac-time">' . date('H:i, d/M', strtotime($log->time)) . '</span>
+                                             <span class="sac-time">' . date('H:i, d/m/Y', strtotime($log->time)) . '</span>
                                         </div>
                                         <textarea id="raw-'.$aid.'" style="display:none;">'.esc_textarea($raw_answer).'</textarea>
                                         <script>
@@ -1373,7 +1407,42 @@ function soft_ai_process_order_logic($intent, $context) {
                 $attr_keys = array_keys($attributes); 
                 
                 if (!empty($attr_keys) && $p->is_type('variable')) {
-                    $context->set('attr_queue', $attr_keys);
+                    // Cải tiến: Tự phát hiện các thuộc tính thuộc dạng Nhóm đối tượng (Adults, Children...)
+                    $group_attr_key = null;
+                    $group_terms = [];
+                    $keywords = ['người lớn', 'trẻ em', 'em bé', 'nguoi lon', 'tre em', 'em be', 'adult', 'child', 'infant', 'người', 'khách'];
+
+                    foreach ($attr_keys as $attr_key) {
+                        $terms = wc_get_product_terms($p->get_id(), $attr_key, array('fields' => 'names'));
+                        if (!is_wp_error($terms) && !empty($terms)) {
+                            foreach ($terms as $term) {
+                                $lower_term = mb_strtolower($term);
+                                foreach ($keywords as $kw) {
+                                    if (strpos($lower_term, $kw) !== false) {
+                                        $group_attr_key = $attr_key;
+                                        $group_terms = $terms;
+                                        break 3;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Tách biệt các thuộc tính thường (cần hỏi trước) và thuộc tính nhóm đối tượng (hỏi số lượng sau)
+                    $normal_attrs = [];
+                    if ($group_attr_key) {
+                        foreach ($attr_keys as $k) {
+                            if ($k !== $group_attr_key) $normal_attrs[] = $k;
+                        }
+                        $context->set('group_attr_key', $group_attr_key);
+                        $context->set('group_qty_queue', $group_terms);
+                        $context->set('group_qty_answers', []);
+                    } else {
+                        $normal_attrs = $attr_keys;
+                        $context->set('group_attr_key', null);
+                    }
+
+                    $context->set('attr_queue', $normal_attrs);
                     $context->set('attr_answers', []); 
                     $context->set('bot_collecting_info_step', 'process_attribute_loop'); 
                     $question = soft_ai_ask_next_attribute($context, $p);
@@ -1427,7 +1496,6 @@ function soft_ai_handle_ordering_steps($message, $step, $context) {
     switch ($step) {
         case 'process_attribute_loop':
             $current_slug = $context->get('current_asking_attr');
-            $clean_message = trim($message);
             $valid_options = $context->get('valid_options_for_' . $current_slug);
             $is_valid = false;
             
@@ -1456,6 +1524,23 @@ function soft_ai_handle_ordering_steps($message, $step, $context) {
 
             $p = wc_get_product($context->get('pending_product_id'));
             return soft_ai_ask_next_attribute($context, $p);
+
+        case 'process_group_qty_loop':
+            $current_term = $context->get('current_asking_group_term');
+            $qty = intval($clean_message);
+            if ($qty < 0) return "Số lượng không hợp lệ. Vui lòng nhập lại số lượng cho **$current_term** (nhập 0 nếu không có):";
+            
+            $answers = $context->get('group_qty_answers') ?: [];
+            if ($qty > 0) {
+                $answers[$current_term] = $qty;
+            }
+            $context->set('group_qty_answers', $answers);
+
+            $pid = $context->get('pending_product_id');
+            $p = wc_get_product($pid);
+            if (!$p) return "Có lỗi xảy ra, không tìm thấy sản phẩm.";
+
+            return soft_ai_ask_next_group_qty($context, $p);
 
         case 'ask_quantity':
             $qty = intval($clean_message);
@@ -1556,6 +1641,12 @@ function soft_ai_handle_ordering_steps($message, $step, $context) {
 function soft_ai_ask_next_attribute($context, $product) {
     $queue = $context->get('attr_queue');
     if (empty($queue)) {
+        // Kiểm tra xem có cần hỏi số lượng từng nhóm đối tượng (Người lớn, trẻ em...) không
+        if ($context->get('group_attr_key')) {
+            $context->set('bot_collecting_info_step', 'process_group_qty_loop');
+            return soft_ai_ask_next_group_qty($context, $product);
+        }
+
         $context->set('bot_collecting_info_step', 'ask_quantity');
         return "Dạ bạn đã chọn đủ thông tin. Bạn muốn lấy số lượng bao nhiêu ạ?";
     }
@@ -1573,6 +1664,77 @@ function soft_ai_ask_next_attribute($context, $product) {
     }
     $label = wc_attribute_label($current_slug);
     return "Bạn chọn **$label** loại nào?$options_text";
+}
+
+function soft_ai_ask_next_group_qty($context, $product) {
+    $queue = $context->get('group_qty_queue');
+    if (empty($queue)) {
+        return soft_ai_add_group_variations_to_cart($context, $product);
+    }
+    $current_term = array_shift($queue);
+    $context->set('group_qty_queue', $queue);
+    $context->set('current_asking_group_term', $current_term);
+    return "Bạn muốn lấy số lượng cho nhóm **" . $current_term . "** là bao nhiêu? (Nhập 0 nếu không có)";
+}
+
+function soft_ai_add_group_variations_to_cart($context, $product) {
+    $group_answers = $context->get('group_qty_answers');
+    $normal_answers = $context->get('attr_answers') ?: [];
+    $group_attr_key = $context->get('group_attr_key');
+    $pid = $product->get_id();
+    
+    if (empty($group_answers)) {
+        $context->set('bot_collecting_info_step', null);
+        return "Bạn đã không chọn số lượng cho bất kỳ nhóm nào. Đã hủy thêm vào giỏ. Bạn cần giúp gì khác không?";
+    }
+
+    $data_store = new WC_Product_Data_Store_CPT();
+    $added_count = 0;
+    $total_qty = 0;
+
+    foreach ($group_answers as $term_name => $qty) {
+        if ($qty <= 0) continue;
+
+        $var_data = [];
+        // Lắp ráp các thuộc tính thường (vd: Ngày đi, Giờ đi, Màu sắc)
+        foreach ($normal_answers as $attr_key => $user_val_name) {
+            $slug_val = $user_val_name; 
+            if (taxonomy_exists($attr_key)) {
+                $term = get_term_by('name', $user_val_name, $attr_key);
+                if ($term) $slug_val = $term->slug;
+            } else {
+                $slug_val = sanitize_title($user_val_name);
+            }
+            $var_data['attribute_' . $attr_key] = $slug_val;
+        }
+        
+        // Lắp ráp thuộc tính nhóm (vd: Người lớn)
+        $group_slug_val = $term_name;
+        if (taxonomy_exists($group_attr_key)) {
+            $term = get_term_by('name', $term_name, $group_attr_key);
+            if ($term) $group_slug_val = $term->slug;
+        } else {
+            $group_slug_val = sanitize_title($term_name);
+        }
+        $var_data['attribute_' . $group_attr_key] = $group_slug_val;
+
+        // Tìm variation tương ứng
+        $var_id = $data_store->find_matching_product_variation($product, $var_data);
+        
+        if ($var_id) {
+            $context->add_to_cart($pid, $qty, $var_id, $var_data);
+            $added_count++;
+            $total_qty += $qty;
+        }
+    }
+
+    $context->set('bot_collecting_info_step', null);
+    if ($added_count > 0) {
+        $total = $context->get_cart_total_string();
+        return "✅ Đã thêm thành công vào giỏ ($total_qty vé/sản phẩm). Tổng tạm tính: $total.\nGõ 'Thanh toán' để chốt đơn hoặc hỏi mua tiếp.";
+    } else {
+        return "Xin lỗi, phiên bản bạn chọn hiện không tồn tại hoặc đã hết hàng. Vui lòng tìm và chọn lại.";
+    }
 }
 
 function soft_ai_present_payment_gateways($context, $msg) {
@@ -1808,11 +1970,12 @@ function soft_ai_chat_poll_messages($request) {
     $last_id = (int) ($request->get_json_params()['last_id'] ?? 0);
     
     // Fetch only admin replies newer than last_id
-    $new_msgs = $wpdb->get_results($wpdb->prepare("SELECT id, answer, time FROM $table WHERE user_ip = %s AND provider = 'live_admin' AND id > %d ORDER BY time ASC", $ip, $last_id));
+    $new_msgs = $wpdb->get_results($wpdb->prepare("SELECT id, answer, time, model FROM $table WHERE user_ip = %s AND provider = 'live_admin' AND id > %d ORDER BY time ASC", $ip, $last_id));
 
     $data = [];
     foreach($new_msgs as $m) {
-        $data[] = ['id' => $m->id, 'text' => $m->answer];
+        $admin_name = (!empty($m->model) && $m->model !== 'human') ? $m->model : 'Nhân viên';
+        $data[] = ['id' => $m->id, 'text' => $m->answer, 'admin_name' => $admin_name];
     }
 
     return rest_ensure_response(['messages' => $data]);
@@ -1992,7 +2155,6 @@ function soft_ai_chat_inject_widget() {
             color: #0050b3; 
             border-bottom-left-radius: 2px; 
             position: relative;
-            padding-top: 20px; /* Space for label */
         }
 
         .sac-input-area { padding: 12px; border-top: 1px solid #eee; background: white; display: flex; gap: 8px; }
@@ -2054,8 +2216,8 @@ function soft_ai_chat_inject_widget() {
                         const msgs = document.getElementById('sac-messages');
                         data.messages.forEach(m => {
                             lastMsgId = Math.max(lastMsgId, parseInt(m.id));
-                            // Use 'admin' class for highlighted messages
-                            msgs.innerHTML += `<div class="sac-msg admin">${marked.parse(m.text)}</div>`;
+                            const adminName = m.admin_name || 'Nhân viên';
+                            msgs.innerHTML += `<div class="sac-msg admin"><div style="font-size:12px; font-weight:bold; margin-bottom:4px; color:#0050b3;">🧑‍💻 ${adminName}</div>${marked.parse(m.text)}</div>`;
                         });
                         msgs.scrollTop = msgs.scrollHeight;
                     }
