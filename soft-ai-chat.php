@@ -1088,9 +1088,16 @@ class Soft_AI_Context {
 // ---------------------------------------------------------
 function soft_ai_notify_admin_by_email($question, $platform, $user_id) {
     $options = get_option('soft_ai_chat_settings');
-    $admin_email = $options['admin_email_notify'] ?? get_option('admin_email');
+    $admin_email_setting = $options['admin_email_notify'] ?? get_option('admin_email');
 
-    if (empty($admin_email)) return;
+    if (empty($admin_email_setting)) return;
+
+    // Tách chuỗi email bằng dấu phẩy và dọn dẹp khoảng trắng
+    $admin_emails = array_map('trim', explode(',', $admin_email_setting));
+    // Lọc bỏ các giá trị rỗng hoặc không phải email hợp lệ
+    $admin_emails = array_filter($admin_emails, 'is_email');
+
+    if (empty($admin_emails)) return;
 
     $subject = "[Soft AI Chat] Tin nhắn mới từ " . strtoupper($platform);
     $body = "Bạn có tin nhắn mới từ khách hàng trên website.<br/>\n\n";
@@ -1103,7 +1110,8 @@ function soft_ai_notify_admin_by_email($question, $platform, $user_id) {
 
     $headers = array('Content-Type: text/html; charset=UTF-8');
 
-    wp_mail($admin_email, $subject, $body, $headers);
+    // Gửi cho danh sách email (wp_mail hỗ trợ mảng địa chỉ)
+    wp_mail($admin_emails, $subject, $body, $headers);
 }
 
 function soft_ai_clean_content($content) {
