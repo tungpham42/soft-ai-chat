@@ -3,7 +3,7 @@
  * Plugin Name: Soft AI Chat (All-in-One) - Enhanced Payment & Social & Live Chat & Coupons & Canned Responses
  * Plugin URI:  https://soft.io.vn/soft-ai-chat
  * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + Coupons + VietQR/PayPal + Facebook/Zalo + Live Chat + Canned Responses + Auto Suggestions + Group Quantity.
- * Version:     3.5.5
+ * Version:     3.5.6
  * Author:      Tung Pham
  * License:     GPL-2.0+
  * Text Domain: soft-ai-chat
@@ -2092,12 +2092,21 @@ HTML;
 }
 
 function soft_ai_chat_inject_widget() {
+    global $wpdb;
     $options = get_option('soft_ai_chat_settings');
     if (is_admin() || empty($options['provider'])) return;
 
     $color = $options['theme_color'] ?? '#027DDD';
     $welcome = $options['welcome_msg'] ?? 'Xin chào! Bạn cần tìm gì ạ?';
     $chat_title = $options['chat_title'] ?? 'Trợ lý AI';
+    
+    // NEW: Lấy tên website làm tên shop
+    $shop_name = get_bloginfo('name');
+    
+    // NEW: Tìm Message ID lớn nhất hiện tại của User IP để không load lại tin cũ lúc khởi chạy
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    $table = $wpdb->prefix . 'soft_ai_chat_logs';
+    $max_id = (int) $wpdb->get_var($wpdb->prepare("SELECT MAX(id) FROM $table WHERE user_ip = %s", $ip));
 
     ?>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
@@ -2185,8 +2194,14 @@ function soft_ai_chat_inject_widget() {
     <script>
         const apiUrl = '<?php echo esc_url(rest_url('soft-ai-chat/v1/ask')); ?>';
         const pollUrl = '<?php echo esc_url(rest_url('soft-ai-chat/v1/poll')); ?>';
-        let lastMsgId = 0;
+        
+        // NEW: Sử dụng ID lớn nhất lúc tải trang để chặn việc load lại các hội thoại nhân viên cũ
+        let lastMsgId = <?php echo $max_id; ?>; 
+        
         let pollInterval = null;
+        
+        // NEW: Lấy tên website
+        const shopName = '<?php echo esc_js($shop_name); ?>'; 
 
         function toggleSac() {
             const win = document.getElementById('sac-window');
@@ -2216,8 +2231,8 @@ function soft_ai_chat_inject_widget() {
                         const msgs = document.getElementById('sac-messages');
                         data.messages.forEach(m => {
                             lastMsgId = Math.max(lastMsgId, parseInt(m.id));
-                            const adminName = m.admin_name || 'Nhân viên';
-                            msgs.innerHTML += `<div class="sac-msg admin"><div style="font-size:12px; font-weight:bold; margin-bottom:4px; color:#0050b3;">🧑‍💻 ${adminName}</div>${marked.parse(m.text)}</div>`;
+                            // NEW: Render tên shopName thay vì adminName
+                            msgs.innerHTML += `<div class="sac-msg admin"><div style="font-size:12px; font-weight:bold; margin-bottom:4px; color:#0050b3;">🧑‍💻 ${shopName}</div>${marked.parse(m.text)}</div>`;
                         });
                         msgs.scrollTop = msgs.scrollHeight;
                     }
