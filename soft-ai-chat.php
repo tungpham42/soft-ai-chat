@@ -145,7 +145,7 @@ function soft_ai_chat_settings_init() {
     add_settings_field('groq_api_key', __('Groq API Key', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_main', ['field' => 'groq_api_key', 'class' => 'row-groq']);
     add_settings_field('openai_api_key', __('OpenAI API Key', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_main', ['field' => 'openai_api_key', 'class' => 'row-openai']);
     add_settings_field('gemini_api_key', __('Google Gemini API Key', 'soft-ai-chat'), 'soft_ai_render_password', 'softAiChat', 'soft_ai_chat_main', ['field' => 'gemini_api_key', 'class' => 'row-gemini']);
-    add_settings_field('model', __('AI Model Name', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_main', ['field' => 'model', 'default' => 'llama-3.3-70b-versatile','desc' => 'Recommended: <code>llama-3.3-70b-versatile</code> (Groq), <code>gpt-4o-mini</code> (OpenAI)']);
+    add_settings_field('model', __('AI Model Name', 'soft-ai-chat'), 'soft_ai_render_text', 'softAiChat', 'soft_ai_chat_main', ['field' => 'model', 'default' => 'meta-llama/llama-4-maverick-17b-128e-instruct','desc' => 'Recommended: <code>meta-llama/llama-4-maverick-17b-128e-instruct</code> (Groq), <code>gpt-4o-mini</code> (OpenAI), <code>gemini-3-flash-preview</code> (Gemini)']);
     add_settings_field('temperature', __('Creativity', 'soft-ai-chat'), 'soft_ai_render_number', 'softAiChat', 'soft_ai_chat_main', ['field' => 'temperature', 'default' => 0.5, 'step' => 0.1, 'max' => 1]);
     add_settings_field('max_tokens', __('Max Tokens', 'soft-ai-chat'), 'soft_ai_render_number', 'softAiChat', 'soft_ai_chat_main', ['field' => 'max_tokens', 'default' => 4096]);
     add_settings_field('system_prompt', __('Custom Persona', 'soft-ai-chat'), 'soft_ai_render_textarea', 'softAiChat', 'soft_ai_chat_main', ['field' => 'system_prompt']);
@@ -1495,7 +1495,7 @@ function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '')
 
     $options = get_option('soft_ai_chat_settings');
     $provider = $options['provider'] ?? 'groq';
-    $model = $options['model'] ?? 'llama-3.3-70b-versatile';
+    $model = $options['model'] ?? 'meta-llama/llama-4-maverick-17b-128e-instruct';
     
     $site_context = soft_ai_chat_get_context($question);
     $user_instruction = $options['system_prompt'] ?? '';
