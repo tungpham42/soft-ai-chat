@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Soft AI Chat (All-in-One)
  * Plugin URI:  https://soft.io.vn/soft-ai-chat
- * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + Coupons + VietQR/PayPal + Facebook/Zalo + Live Chat + Canned Responses + Auto Suggestions + Group Quantity + Analytics.
- * Version:     3.6.0
+ * Description: AI Chat Widget & Sales Bot. Supports RAG + WooCommerce + Coupons + VietQR/PayPal + Facebook/Zalo + Live Chat + Canned Responses + Auto Suggestions + Group Quantity + Analytics + Referrer URL tracking.
+ * Version:     3.6.1
  * Author:      Tung Pham
  * License:     GPL-2.0+
  * Text Domain: soft-ai-chat
@@ -36,6 +36,8 @@ function soft_ai_chat_activate() {
         answer longtext NOT NULL,
         source varchar(50) DEFAULT 'widget' NOT NULL, 
         is_read tinyint(1) DEFAULT 0 NOT NULL,
+        current_url varchar(500) DEFAULT '' NOT NULL,
+        referrer_url varchar(500) DEFAULT '' NOT NULL,
         PRIMARY KEY  (id),
         KEY time (time),
         KEY user_ip (user_ip)
@@ -483,7 +485,7 @@ function soft_ai_live_chat_page() {
                     var activeClass = (currentChatIp === sess.ip) ? 'background:#e6f7ff;' : '';
                     var badge = sess.unread > 0 ? '<span style="background:red; color:white; border-radius:50%; padding:2px 6px; font-size:10px; margin-left:5px;">'+sess.unread+'</span>' : '';
                     html += '<div onclick="openAdminChat(\''+sess.ip+'\')" style="padding: 12px; border-bottom: 1px solid #eee; cursor: pointer; '+activeClass+'">';
-                    html += '<strong>' + sess.ip + '</strong>'+badge+'<br><small style="color:#666">' + sess.time + '</small>';
+                    html += '<strong>' + sess.source_label + ': ' + sess.ip + '</strong>' + badge + '<br><small style="color:#666">' + sess.time + '</small>';
                     html += '</div>';
                 });
                 if(response.data.length === 0) {
@@ -534,8 +536,18 @@ function soft_ai_live_chat_page() {
                         adminNameHtml = '<div style="font-size:11px; font-weight:bold; margin-bottom:5px; opacity:0.9;">' + icon + ' ' + nameLabel + '</div>';
                     }
 
+                    var urlHtml = '';
+                    if (!msg.is_admin && msg.current_url) {
+                        urlHtml += '<div style="font-size:11px; margin-top:8px; border-top:1px dashed rgba(0,0,0,0.1); padding-top:5px; word-break:break-all;">';
+                        urlHtml += '🔗 <b>URL:</b> <a href="'+msg.current_url+'" target="_blank" style="color:#0073aa; text-decoration:none;">'+msg.current_url+'</a><br>';
+                        if (msg.referrer_url) {
+                            urlHtml += '🔙 <b>Ref:</b> <a href="'+msg.referrer_url+'" target="_blank" style="color:#0073aa; text-decoration:none;">'+msg.referrer_url+'</a>';
+                        }
+                        urlHtml += '</div>';
+                    }
+
                     html += '<div style="margin-bottom: 10px; ' + align + '">';
-                    html += '<div style="display:inline-block; padding: 8px 12px; border-radius: 15px; max-width: 70%; ' + bg + '">' + adminNameHtml + parsedContent + '</div>';
+                    html += '<div style="display:inline-block; padding: 8px 12px; border-radius: 15px; max-width: 70%; ' + bg + '">' + adminNameHtml + parsedContent + urlHtml + '</div>';
                     html += '<div style="font-size:10px; color:#666; margin-top:2px;">' + msg.time + '</div>';
                     html += '</div>';
                     
@@ -869,7 +881,7 @@ function soft_ai_ajax_get_sessions() {
     
     if ($date) {
         $results = $wpdb->get_results($wpdb->prepare("
-            SELECT user_ip as ip, MAX(time) as latest_time, 
+            SELECT user_ip as ip, MAX(time) as latest_time, source,
             SUM(CASE WHEN is_read = 0 AND provider != 'live_admin' THEN 1 ELSE 0 END) as unread
             FROM $table 
             WHERE DATE(time) = %s 
@@ -878,7 +890,7 @@ function soft_ai_ajax_get_sessions() {
         ", $date));
     } else {
         $results = $wpdb->get_results("
-            SELECT user_ip as ip, MAX(time) as latest_time, 
+            SELECT user_ip as ip, MAX(time) as latest_time, source, 
             SUM(CASE WHEN is_read = 0 AND provider != 'live_admin' THEN 1 ELSE 0 END) as unread
             FROM $table 
             WHERE time > NOW() - INTERVAL 24 HOUR 
@@ -889,7 +901,17 @@ function soft_ai_ajax_get_sessions() {
 
     $data = [];
     foreach($results as $r) {
-        $data[] = ['ip' => $r->ip, 'time' => date('H:i, d/m/Y', strtotime($r->latest_time)), 'unread' => $r->unread];
+        // Xác định icon dựa trên source
+        $source_icon = '🌐'; // Default Widget
+        if($r->source === 'facebook') $source_icon = '🔵';
+        if($r->source === 'zalo') $source_icon = '🟡';
+
+        $data[] = [
+            'ip' => $r->ip, 
+            'time' => date('H:i, d/m/Y', strtotime($r->latest_time)), 
+            'unread' => $r->unread,
+            'source_label' => $source_icon . ' ' . ucfirst($r->source)
+        ];
     }
     wp_send_json_success($data);
 }
@@ -923,8 +945,19 @@ function soft_ai_ajax_get_messages() {
             $is_admin = true; 
             $admin_name = (!empty($log->model) && $log->model !== 'human') ? $log->model : 'Admin';
         } elseif (!empty($log->answer) && !empty($log->question)) {
-            $messages[] = ['content' => $log->question, 'is_admin' => false, 'time' => date('H:i, d/m/Y', strtotime($log->time))];
-            $messages[] = ['content' => $log->answer, 'is_admin' => true, 'admin_name' => 'AI Bot', 'time' => date('H:i, d/m/Y', strtotime($log->time))];
+            $messages[] = [
+                'content' => $log->question, 
+                'is_admin' => false, 
+                'time' => date('H:i, d/m/Y', strtotime($log->time)),
+                'current_url' => isset($log->current_url) ? $log->current_url : '',
+                'referrer_url' => isset($log->referrer_url) ? $log->referrer_url : ''
+            ];
+            $messages[] = [
+                'content' => $log->answer, 
+                'is_admin' => true, 
+                'admin_name' => 'AI Bot', 
+                'time' => date('H:i, d/m/Y', strtotime($log->time))
+            ];
             continue;
         }
 
@@ -932,7 +965,14 @@ function soft_ai_ajax_get_messages() {
             $admin_name = 'AI Bot';
         }
 
-        $messages[] = ['content' => $content, 'is_admin' => $is_admin, 'admin_name' => $admin_name, 'time' => date('H:i, d/m/Y', strtotime($log->time))];
+        $messages[] = [
+            'content' => $content, 
+            'is_admin' => $is_admin, 
+            'admin_name' => $admin_name, 
+            'time' => date('H:i, d/m/Y', strtotime($log->time)),
+            'current_url' => isset($log->current_url) ? $log->current_url : '',
+            'referrer_url' => isset($log->referrer_url) ? $log->referrer_url : ''
+        ];
     }
     wp_send_json_success(['messages' => $messages, 'is_live' => (bool)$is_live]);
 }
@@ -967,18 +1007,40 @@ function soft_ai_ajax_send_reply() {
     $msg = sanitize_text_field($_POST['message']);
     if (!$ip || !$msg) wp_send_json_error();
 
+    $table = $wpdb->prefix . 'soft_ai_chat_logs';
+    $last_source = $wpdb->get_var($wpdb->prepare("SELECT source FROM $table WHERE user_ip = %s ORDER BY id DESC LIMIT 1", $ip)) ?: 'widget';
+
     $current_user = wp_get_current_user();
     $admin_name = !empty($current_user->display_name) ? $current_user->display_name : 'Admin';
 
-    $wpdb->insert($wpdb->prefix . 'soft_ai_chat_logs', [
-        'time' => current_time('mysql'), 'user_ip' => $ip, 'provider' => 'live_admin', 'model' => $admin_name,
-        'question' => '', 'answer' => $msg, 'source' => 'widget', 'is_read' => 1
+    $wpdb->insert($table, [
+        'time' => current_time('mysql'), 
+        'user_ip' => $ip, 
+        'provider' => 'live_admin', 
+        'model' => $admin_name,
+        'question' => '', 
+        'answer' => $msg, 
+        'source' => $last_source, // Lưu theo source hội thoại
+        'is_read' => 1
     ]);
     
     // STATS UPDATE (NEW)
     soft_ai_update_stats_table($ip, 'admin_reply');
     
-    $context = new Soft_AI_Context($ip, 'widget');
+    if ($last_source === 'facebook') {
+        $options = get_option('soft_ai_chat_settings');
+        soft_ai_send_fb_message($ip, $msg, $options['fb_page_token']);
+    } elseif ($last_source === 'zalo') {
+        $token = get_option('soft_ai_chat_settings')['zalo_access_token'] ?? '';
+        if ($token) {
+            wp_remote_post("https://openapi.zalo.me/v3.0/oa/message/cs", [
+                'headers' => ['access_token' => $token, 'Content-Type' => 'application/json'],
+                'body' => json_encode(['recipient' => ['user_id' => $ip], 'message' => ['text' => $msg]])
+            ]);
+        }
+    }
+
+    $context = new Soft_AI_Context($ip, $last_source);
     $context->set('live_chat_mode', true);
     wp_send_json_success();
 }
@@ -1099,9 +1161,20 @@ function soft_ai_chat_history_page() {
                             $is_admin_reply = ($log->provider === 'live_admin');
                             if (!empty($log->question) && $log->provider !== 'live_admin') {
                                 $qid = 'q-' . $log->id;
+                                
+                                $url_info = '';
+                                if (!empty($log->current_url)) {
+                                    $url_info .= "<div style='font-size:11px; margin-top:8px; border-top:1px dashed rgba(255,255,255,0.3); padding-top:5px; word-break:break-all; line-height:1.4;'>";
+                                    $url_info .= "🔗 <b>URL:</b> <a href='".esc_url($log->current_url)."' target='_blank' style='color:#cce5ff; text-decoration:none;'>".esc_html($log->current_url)."</a><br>";
+                                    if (!empty($log->referrer_url)) {
+                                        $url_info .= "🔙 <b>Ref:</b> <a href='".esc_url($log->referrer_url)."' target='_blank' style='color:#cce5ff; text-decoration:none;'>".esc_html($log->referrer_url)."</a>";
+                                    }
+                                    $url_info .= "</div>";
+                                }
+
                                 echo '<div class="sac-bubble-row user">
                                         <div class="sac-bubble">
-                                            <div id="'.$qid.'"></div>
+                                            <div id="'.$qid.'"></div>' . $url_info . '
                                             <span class="sac-time">' . date('H:i, d/m/Y', strtotime($log->time)) . '</span>
                                         </div>
                                         <textarea id="raw-'.$qid.'" style="display:none;">'.esc_textarea($log->question).'</textarea>
@@ -1154,7 +1227,7 @@ function soft_ai_chat_history_page() {
                 
                 if ($filter_date) {
                     $threads = $wpdb->get_results($wpdb->prepare("
-                        SELECT user_ip, MAX(time) as last_time, COUNT(*) as msg_count 
+                        SELECT user_ip, MAX(time) as last_time, COUNT(*) as msg_count, MAX(source) as source 
                         FROM $table_name 
                         WHERE DATE(time) = %s
                         GROUP BY user_ip 
@@ -1163,7 +1236,7 @@ function soft_ai_chat_history_page() {
                     ", $filter_date, $per_page, $offset));
                 } else {
                     $threads = $wpdb->get_results($wpdb->prepare("
-                        SELECT user_ip, MAX(time) as last_time, COUNT(*) as msg_count 
+                        SELECT user_ip, MAX(time) as last_time, COUNT(*) as msg_count, MAX(source) as source
                         FROM $table_name 
                         GROUP BY user_ip 
                         ORDER BY last_time DESC 
@@ -1192,10 +1265,16 @@ function soft_ai_chat_history_page() {
                         $time_ago = human_time_diff(strtotime($th->last_time), current_time('timestamp')) . ' ago';
                     ?>
                     <div class="sac-thread-item">
-                        <div class="sac-avatar"><?php echo $is_numeric_ip ? '🌐' : '👤'; ?></div>
+                        <div class="sac-avatar">
+                            <?php 
+                            if($th->source === 'facebook') echo '🔵';
+                            elseif($th->source === 'zalo') echo '🟡';
+                            else echo '🌐';
+                            ?>
+                        </div>
                         <div class="sac-thread-info">
                             <a href="?page=soft-ai-chat-history&view_ip=<?php echo urlencode($th->user_ip); ?>" class="sac-ip-title">
-                                <?php echo esc_html($display_name); ?>
+                                <?php echo '[' . strtoupper($th->source) . '] ' . esc_html($display_name); ?>
                             </a>
                             <div class="sac-thread-meta">
                                 Last active: <?php echo $time_ago; ?> 
@@ -1379,7 +1458,7 @@ function soft_ai_chat_get_context($question) {
     return $context ?: "No specific website content found for this query.";
 }
 
-function soft_ai_log_chat($question, $answer, $source = 'widget', $provider_override = '', $model_override = '') {
+function soft_ai_log_chat($question, $answer, $source = 'widget', $provider_override = '', $model_override = '', $current_url = '', $referrer_url = '') {
     global $wpdb;
     $opt = get_option('soft_ai_chat_settings');
     $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
@@ -1405,7 +1484,9 @@ function soft_ai_log_chat($question, $answer, $source = 'widget', $provider_over
         'model' => $model_override ?: ($opt['model'] ?? 'unknown'),
         'question' => $question,
         'answer' => $answer,
-        'source' => $source
+        'source' => $source,
+        'current_url' => $current_url,
+        'referrer_url' => $referrer_url
     ]);
 }
 
@@ -1422,7 +1503,7 @@ function soft_ai_clean_text_for_social($content) {
     return trim(wp_strip_all_tags($content));
 }
 
-function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '') {
+function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '', $current_url = '', $referrer_url = '') {
     global $wpdb;
     if (empty($user_id)) $user_id = get_current_user_id() ?: md5($_SERVER['REMOTE_ADDR']);
     $context = new Soft_AI_Context($user_id, $platform);
@@ -1435,7 +1516,7 @@ function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '')
     if (in_array($clean_q, $human_keywords)) {
         $context->set('live_chat_mode', true);
         $msg = "Đã chuyển sang chế độ Chat với Nhân Viên 🔴.\nVui lòng nhắn tin, nhân viên sẽ trả lời bạn sớm nhất có thể.";
-        soft_ai_log_chat($question, $msg, $platform, 'system_switch');
+        soft_ai_log_chat($question, $msg, $platform, 'system_switch', '', $current_url, $referrer_url);
         return $msg;
     }
 
@@ -1445,22 +1526,8 @@ function soft_ai_generate_answer($question, $platform = 'widget', $user_id = '')
     }
 
     if ($context->get('live_chat_mode')) {
-        soft_ai_log_chat($question, '', $platform, 'live_user', 'human');
+        soft_ai_log_chat($question, '', $platform, 'live_user', 'human', $current_url, $referrer_url);
         return "[WAIT_FOR_HUMAN]"; 
-    }
-
-    $table_canned = $wpdb->prefix . 'soft_ai_canned_msgs';
-    $canned_match = $wpdb->get_row($wpdb->prepare(
-        "SELECT content FROM $table_canned WHERE LOWER(shortcut) = %s OR %s LIKE CONCAT('%%', LOWER(shortcut), '%%') LIMIT 1",
-        $clean_q, $clean_q
-    ));
-
-    if ($canned_match) {
-        $msg = $canned_match->content;
-        if ($platform === 'facebook' || $platform === 'zalo') {
-            return soft_ai_clean_text_for_social($msg);
-        }
-        return $msg;
     }
 
     $current_step = $context->get('bot_collecting_info_step');
@@ -2174,18 +2241,20 @@ function soft_ai_chat_handle_widget_request($request) {
 
     $params = $request->get_json_params();
     $question = sanitize_text_field($params['question'] ?? '');
+    $current_url = esc_url_raw($params['current_url'] ?? '');
+    $referrer_url = esc_url_raw($params['referrer_url'] ?? '');
     
     if (!$question) return new WP_Error('no_input', 'Empty Question', ['status' => 400]);
 
     soft_ai_notify_admin_by_email($question, 'Website Widget', $_SERVER['REMOTE_ADDR']);
 
-    $answer = soft_ai_generate_answer($question, 'widget');
+    $answer = soft_ai_generate_answer($question, 'widget', '', $current_url, $referrer_url);
     
     if ($answer === '[WAIT_FOR_HUMAN]') {
         return rest_ensure_response(['answer' => '', 'live_mode' => true]);
     }
 
-    soft_ai_log_chat($question, $answer, 'widget');
+    soft_ai_log_chat($question, $answer, 'widget', '', '', $current_url, $referrer_url);
     return rest_ensure_response(['answer' => $answer]);
 }
 
@@ -2329,7 +2398,8 @@ function soft_ai_chat_inject_widget() {
     
     $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
     $table = $wpdb->prefix . 'soft_ai_chat_logs';
-    $max_id = (int) $wpdb->get_var($wpdb->prepare("SELECT MAX(id) FROM $table WHERE user_ip = %s", $ip));
+    // $max_id = (int) $wpdb->get_var($wpdb->prepare("SELECT MAX(id) FROM $table WHERE user_ip = %s", $ip));
+    $max_id = (int) $wpdb->get_var("SELECT MAX(id) FROM $table"); // Bỏ điều kiện WHERE user_ip để lấy mốc ID mới nhất toàn hệ thống
 
     ?>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
@@ -2389,7 +2459,16 @@ function soft_ai_chat_inject_widget() {
             const win = document.getElementById('sac-window');
             const isHidden = win.style.display === '' || win.style.display === 'none';
             win.style.display = isHidden ? 'flex' : 'none';
+            
             if (isHidden) {
+                // 1. Clear the UI immediately
+                const msgs = document.getElementById('sac-messages');
+                msgs.innerHTML = `<div class="sac-msg bot"><?php echo esc_js($welcome); ?></div>`; //
+                
+                // 2. IMPORTANT: Update lastMsgId to the current global max 
+                // This prevents the poller from fetching messages sent before this moment.
+                lastMsgId = <?php echo (int) $wpdb->get_var("SELECT MAX(id) FROM {$wpdb->prefix}soft_ai_chat_logs") ?: 0; ?>; //
+
                 setTimeout(() => document.getElementById('sac-input').focus(), 100);
                 startPolling();
             } else {
@@ -2404,15 +2483,16 @@ function soft_ai_chat_inject_widget() {
             pollInterval = setInterval(async () => {
                 try {
                     const res = await fetch(pollUrl, {
-                         method: 'POST',
-                         headers: { 'Content-Type': 'application/json' },
-                         body: JSON.stringify({ last_id: lastMsgId })
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ last_id: lastMsgId }) //
                     });
                     const data = await res.json();
                     if(data.messages && data.messages.length > 0) {
                         const msgs = document.getElementById('sac-messages');
                         data.messages.forEach(m => {
-                            lastMsgId = Math.max(lastMsgId, parseInt(m.id));
+                            // Update pointer so we don't fetch the same message twice
+                            lastMsgId = Math.max(lastMsgId, parseInt(m.id)); //
                             msgs.innerHTML += `<div class="sac-msg admin"><div style="font-size:12px; font-weight:bold; margin-bottom:4px; color:#0050b3;">🧑‍💻 ${shopName}</div>${marked.parse(m.text)}</div>`;
                         });
                         msgs.scrollTop = msgs.scrollHeight;
@@ -2442,7 +2522,11 @@ function soft_ai_chat_inject_widget() {
                 const res = await fetch(apiUrl, {
                     method: 'POST', 
                     headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': '<?php echo wp_create_nonce('wp_rest'); ?>' },
-                    body: JSON.stringify({ question: txt })
+                    body: JSON.stringify({ 
+                        question: txt,
+                        current_url: window.location.href,
+                        referrer_url: document.referrer
+                    })
                 });
                 const data = await res.json();
                 document.getElementById(loadingId).remove();
